@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Entrar{% endblock %}
+{% block content %}
+<div class="max-w-sm mx-auto mt-16 bg-white rounded-xl border border-slate-200 p-6">
+    <h1 class="text-xl font-bold text-slate-900 mb-4">{{ church_config.name|default:"Church CRM" }}</h1>
+    <form method="post" class="space-y-4">
+        {% csrf_token %}
+        {% if form.errors %}
+        <p class="text-sm text-red-600">Usuário ou senha inválidos.</p>
+        {% endif %}
+        <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1">Usuário</label>
+            <input type="text" name="username" autofocus class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+        </div>
+        <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1">Senha</label>
+            <input type="password" name="password" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+        </div>
+        <button type="submit" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-medium rounded-lg py-2 text-sm">
+            Entrar
+        </button>
+    </form>
+    <p class="text-center mt-4">
+        <a href="{% url 'accounts:password_reset' %}" class="text-xs text-slate-500 hover:text-brand-700">Esqueci minha senha</a>
+    </p>
+    <p class="text-center mt-2">
+        <a href="{% url 'core:church_signup' %}" class="text-xs text-slate-500 hover:text-brand-700">Sua igreja ainda não tem cadastro? Comece aqui</a>
+    </p>
+</div>
+{% endblock %}

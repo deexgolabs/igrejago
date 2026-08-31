@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Acompanhamento de visitantes{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-900">Acompanhamento de visitantes</h1>
+        <p class="text-sm text-slate-500">Arraste um cartão para mudar a etapa.</p>
+    </div>
+    <a href="{% url 'people:list' %}" class="text-sm text-brand-700 hover:underline">← Pessoas</a>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+    {% for stage_value, stage_label, stage_people in columns %}
+    <div class="bg-slate-100 rounded-xl p-3 min-h-[200px]" data-stage="{{ stage_value }}"
+         ondragover="event.preventDefault()" ondrop="onDrop(event)">
+        <h3 class="text-sm font-semibold text-slate-600 mb-3">{{ stage_label }} <span class="text-slate-400 font-normal">({{ stage_people|length }})</span></h3>
+        <div class="space-y-2">
+            {% for person in stage_people %}
+            <div draggable="true" ondragstart="onDragStart(event)" data-id="{{ person.pk }}"
+                 class="bg-white border border-slate-200 rounded-lg p-2.5 text-sm cursor-move shadow-sm">
+                <a href="{% url 'people:detail' person.pk %}" class="font-medium text-slate-800 hover:text-brand-700">{{ person.full_name }}</a>
+                {% if person.phone %}<p class="text-xs text-slate-400 mt-0.5">{{ person.phone }}</p>{% endif %}
+            </div>
+            {% empty %}
+            <p class="text-xs text-slate-400">Nenhuma pessoa aqui.</p>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<script>
+function onDragStart(e) {
+    e.dataTransfer.setData("text/plain", e.currentTarget.dataset.id);
+}
+function getCookie(name) {
+    const match = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+    return match ? match.pop() : '';
+}
+function onDrop(e) {
+    e.preventDefault();
+    const id = e.dataTransfer.getData("text/plain");
+    const stage = e.currentTarget.dataset.stage;
+    if (!id) return;
+    fetch(`/pessoas/acompanhamento/${id}/mover/`, {
+        method: "POST",
+        headers: {
+            "X-CSRFToken": getCookie("csrftoken"),
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: `stage=${encodeURIComponent(stage)}`,
+    }).then(response => { if (response.ok) location.reload(); });
+}
+</script>
+{% endblock %}

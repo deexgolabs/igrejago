@@ -1,0 +1,19 @@
+{% extends "public_base.html" %}
+{% block title %}Conta suspensa{% endblock %}
+{% block content %}
+<div class="bg-white border border-slate-200 rounded-xl p-6 text-center">
+    <h1 class="text-lg font-bold text-slate-900 mb-2">Acesso suspenso</h1>
+    <p class="text-sm text-slate-500 mb-4">
+        {% if church %}O acesso de "{{ church.name }}" está suspenso{% else %}O acesso está suspenso{% endif %}
+        — o período de teste venceu sem uma assinatura ativa, ou o pagamento da assinatura não foi
+        confirmado. Assine um plano para voltar a usar o sistema normalmente.
+    </p>
+    <a href="{% url 'core:assinatura' %}" class="inline-block text-white font-medium rounded-lg px-4 py-2 text-sm" style="background:{{ paleta_marca.600 }}">
+        Ver planos
+    </a>
+    <form method="post" action="{% url 'accounts:logout' %}" class="mt-4">
+        {% csrf_token %}
+        <button type="submit" class="text-xs text-slate-400 underline">Sair</button>
+    </form>
+</div>
+{% endblock %}

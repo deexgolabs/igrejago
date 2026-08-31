@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Editar campo{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold text-slate-900 mb-6">Editar campo</h1>
+
+<form method="post" class="form-padrao bg-white border border-slate-200 rounded-xl p-6 max-w-2xl space-y-4">
+    {% csrf_token %}
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="sm:col-span-2">
+            <label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.label.label }}</label>
+            {{ form.label }}
+        </div>
+        <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.field_type.label }}</label>
+            {{ form.field_type }}
+        </div>
+        <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.order.label }}</label>
+            {{ form.order }}
+        </div>
+        <div class="sm:col-span-2">
+            <label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.options.label }}</label>
+            {{ form.options }}
+            <span class="text-xs text-slate-400">{{ form.options.help_text }}</span>
+        </div>
+        <div class="flex items-center gap-2">
+            {{ form.required }}
+            <label class="text-sm text-slate-600">{{ form.required.label }}</label>
+        </div>
+        <div class="flex items-center gap-2">
+            {{ form.is_name_field }}
+            <label class="text-sm text-slate-600">{{ form.is_name_field.label }}</label>
+        </div>
+        <div class="flex items-center gap-2">
+            {{ form.is_phone_field }}
+            <label class="text-sm text-slate-600">{{ form.is_phone_field.label }}</label>
+        </div>
+    </div>
+    <div class="flex gap-2 pt-2">
+        <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm rounded-lg px-4 py-2">Salvar</button>
+        <a href="{% url 'custom_forms:field_list' object.form_id %}" class="text-sm text-slate-500 hover:text-slate-800 px-4 py-2">Cancelar</a>
+    </div>
+</form>
+
+<style>
+.form-padrao input[type="text"], .form-padrao input[type="number"], .form-padrao select, .form-padrao textarea {
+    width: 100%; border: 1px solid #d1d5db; border-radius: 0.5rem; padding: 0.4rem 0.65rem; font-size: 0.875rem;
+}
+.form-padrao input[type="checkbox"] { margin-right: 0.25rem; }
+</style>
+{% endblock %}

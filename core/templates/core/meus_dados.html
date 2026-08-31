@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Meus dados{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold text-slate-900 mb-1">Meus dados</h1>
+<p class="text-sm text-slate-500 mb-6">
+    Seus direitos sob a LGPD — baixe uma cópia dos seus dados ou solicite a exclusão deles.
+    <a href="{% url 'core:privacy_policy' %}" class="underline" target="_blank">Política de Privacidade</a>.
+</p>
+
+{% if not person %}
+<div class="bg-amber-50 border border-amber-200 rounded-xl p-5 text-sm text-amber-700">
+    Sua conta ainda não está vinculada a um cadastro de pessoa — peça para a secretaria associar
+    antes de usar esta tela.
+</div>
+{% else %}
+<div class="bg-white border border-slate-200 rounded-xl p-6 max-w-md space-y-4">
+    <div>
+        <h2 class="text-sm font-semibold text-slate-700 mb-2">Baixar meus dados</h2>
+        <p class="text-sm text-slate-500 mb-3">Um arquivo JSON com tudo que temos sobre você.</p>
+        <a href="{% url 'core:meus_dados_export' %}" class="inline-block border border-slate-300 rounded-lg px-4 py-2 text-sm hover:bg-slate-100">
+            Baixar meus dados
+        </a>
+    </div>
+
+    <div class="border-t border-slate-100 pt-4">
+        <h2 class="text-sm font-semibold text-slate-700 mb-2">Solicitar exclusão</h2>
+        {% if pending_deletion_request %}
+        <p class="text-sm text-amber-600">Você já tem uma solicitação de exclusão pendente — a secretaria vai processar em breve.</p>
+        {% else %}
+        <p class="text-sm text-slate-500 mb-3">
+            Isso remove seu cadastro do sistema. A secretaria confirma antes de excluir de verdade.
+        </p>
+        <form method="post" action="{% url 'core:solicitar_exclusao' %}" onsubmit="return confirm('Tem certeza? Isso vai pedir a exclusão do seu cadastro.');">
+            {% csrf_token %}
+            <button type="submit" class="border border-red-300 text-red-700 rounded-lg px-4 py-2 text-sm hover:bg-red-50">
+                Solicitar exclusão dos meus dados
+            </button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+{% endblock %}

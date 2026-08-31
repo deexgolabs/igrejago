@@ -1,0 +1,275 @@
+from datetime import date
+
+import pytest
+
+from notifications.models import WhatsAppMessage
+from people.models import Family, Person, Tag
+
+
+@pytest.mark.django_db
+class TestCampaign:
+    def test_queues_only_for_filtered_people_with_phone(self, pastor_client, person, church):
+        """A campanha não envia nada na hora — só enfileira uma
+        WhatsAppMessage por destinatário (ver [[project-church-crm]]:
+        quem manda de verdade, com intervalo, é `processar_fila_whatsapp`)."""
+        Person.objects.create(church=church, full_name="Sem Telefone", is_member=True, status=Person.Status.ACTIVE)
+        other = Person.objects.create(
+            church=church, full_name="Outro Cargo", phone="62911110000", is_member=True,
+            status=Person.Status.ACTIVE, role=Person.Role.DEACON,
+        )
+
+        response = pastor_client.post(f"/pessoas/campanha/?role={Person.Role.MEMBER}", {
+            "message": "Olá {nome}, culto hoje às 19h!",
+        })
+        assert response.status_code == 302
+
+        queued = WhatsAppMessage.objects.all()
+        assert queued.count() == 1
+        assert queued.first().person == person
+        assert queued.first().status == WhatsAppMessage.Status.PENDING
+        assert "Olá Maria Souza" in queued.first().message
+        assert not WhatsAppMessage.objects.filter(person=other).exists()
+
+    def test_member_cannot_access_campaign(self, member_client):
+        response = member_client.get("/pessoas/campanha/")
+        assert response.status_code == 403
+
+
+@pytest.mark.django_db
+class TestPersonModel:
+    def test_age_computed_from_birth_date(self, person):
+        person.birth_date = date(1990, 3, 15)
+        person.save()
+        expected = date.today().year - 1990
+        if (date.today().month, date.today().day) < (3, 15):
+            expected -= 1
+        assert person.age == expected
+
+    def test_age_is_none_without_birth_date(self, person):
+        person.birth_date = None
+        assert person.age is None
+
+    @pytest.mark.parametrize("raw,expected", [
+        ("62999998888", "5562999998888"),
+        ("(62) 99999-8888", "5562999998888"),
+        ("5562999998888", "5562999998888"),
+        ("", ""),
+    ])
+    def test_whatsapp_number_normalizes_to_e164_with_ddi(self, person, raw, expected):
+        person.phone = raw
+        assert person.whatsapp_number == expected
+
+
+@pytest.mark.django_db
+class TestPersonPermissions:
+    def test_member_gets_403_on_people_list(self, member_client):
+        response = member_client.get("/pessoas/")
+        assert response.status_code == 403
+
+    def test_pastor_can_access_people_list(self, pastor_client, person):
+        response = pastor_client.get("/pessoas/")
+        assert response.status_code == 200
+        assert person.full_name.encode() in response.content
+
+    def test_anonymous_redirected_to_login(self, client):
+        response = client.get("/pessoas/")
+        assert response.status_code == 302
+        assert "/accounts/login/" in response.url
+
+
+@pytest.mark.django_db
+class TestPublicVisitorSignup:
+    def test_signup_creates_visitor_without_login(self, client, church):
+        response = client.post(f"/{church.slug}/pessoas/cadastro/", {
+            "full_name": "Carla Mendes",
+            "phone": "62933332222",
+            "email": "",
+            "birth_date": "",
+            "wants_membership": "on",
+            "privacy_consent": "on",
+        })
+        assert response.status_code == 302
+        created = Person.objects.get(full_name="Carla Mendes")
+        assert created.is_visitor is True
+        assert created.status == Person.Status.VISITOR_ONLY
+        assert created.wants_membership is True
+
+
+@pytest.mark.django_db
+class TestPersonCRUD:
+    def test_pastor_can_create_person(self, pastor_client):
+        response = pastor_client.post("/pessoas/novo/", {
+            "full_name": "João Pedro",
+            "phone": "62988887777",
+            "email": "",
+            "role": "MEMBER",
+            "status": "ACTIVE",
+            "is_member": "on",
+        })
+        assert response.status_code == 302
+        assert Person.objects.filter(full_name="João Pedro").exists()
+
+    def test_member_cannot_create_person(self, member_client):
+        response = member_client.post("/pessoas/novo/", {"full_name": "X"})
+        assert response.status_code == 403
+
+    def test_pastor_can_delete_person(self, pastor_client, person):
+        response = pastor_client.post(f"/pessoas/{person.pk}/excluir/")
+        assert response.status_code == 302
+        assert not Person.objects.filter(pk=person.pk).exists()
+
+
+@pytest.mark.django_db
+class TestPersonImportFlow:
+    def test_review_then_confirm_creates_person_with_edits(self, pastor_client):
+        """O passo de revisão deve permitir editar os dados antes de
+        confirmar — aqui simulamos o POST de confirmação diretamente
+        (o parse do Excel/CSV é testado à parte)."""
+        formset_data = {
+            "step": "review",
+            "form-TOTAL_FORMS": "1",
+            "form-INITIAL_FORMS": "1",
+            "form-MIN_NUM_FORMS": "0",
+            "form-MAX_NUM_FORMS": "1000",
+            "form-0-include": "on",
+            "form-0-full_name": "Nome Corrigido",
+            "form-0-phone": "62911112222",
+            "form-0-email": "",
+            "form-0-birth_date": "",
+            "form-0-role": "MEMBER",
+            "form-0-status": "ACTIVE",
+        }
+        response = pastor_client.post("/pessoas/importar/", formset_data)
+        assert response.status_code == 302
+        created = Person.objects.get(full_name="Nome Corrigido")
+        assert created.role == "MEMBER"
+        assert created.is_member is True
+
+    def test_excluded_row_is_not_created(self, pastor_client):
+        formset_data = {
+            "step": "review",
+            "form-TOTAL_FORMS": "1",
+            "form-INITIAL_FORMS": "1",
+            "form-MIN_NUM_FORMS": "0",
+            "form-MAX_NUM_FORMS": "1000",
+            "form-0-full_name": "Nao Deveria Existir",
+            "form-0-phone": "",
+            "form-0-email": "",
+            "form-0-birth_date": "",
+            "form-0-role": "VISITOR",
+            "form-0-status": "VISITOR",
+            # sem "form-0-include" = desmarcado
+        }
+        pastor_client.post("/pessoas/importar/", formset_data)
+        assert not Person.objects.filter(full_name="Nao Deveria Existir").exists()
+
+    def test_duplicate_by_phone_is_flagged_and_unchecked(self, pastor_client, person):
+        """`person` já existe com telefone 62999998888 (ver conftest.py)."""
+        import io
+
+        import openpyxl
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["nome", "telefone", "email", "data_nascimento"])
+        ws.append(["Nome Diferente", "(62) 99999-8888", "", ""])
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+
+        response = pastor_client.post("/pessoas/importar/", {
+            "file": SimpleUploadedFile("planilha.xlsx", buffer.read()),
+        })
+        assert response.status_code == 200
+        formset = response.context["formset"]
+        assert formset.forms[0].initial["include"] is False
+
+    def test_parse_spreadsheet_skips_blank_names(self):
+        import io
+
+        import openpyxl
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        from people.views import _parse_spreadsheet
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["nome", "telefone", "email", "data_nascimento"])
+        ws.append(["Ana Silva", "62999990000", "", "15/03/1990"])
+        ws.append(["", "62999991111", "", ""])
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+
+        uploaded = SimpleUploadedFile("planilha.xlsx", buffer.read())
+        rows = _parse_spreadsheet(uploaded)
+
+        assert len(rows) == 1
+        assert rows[0]["full_name"] == "Ana Silva"
+        assert rows[0]["birth_date"] == "1990-03-15"
+
+
+@pytest.mark.django_db
+class TestPipelineBoard:
+    def test_board_renders_with_default_column(self, pastor_client, person):
+        response = pastor_client.get("/pessoas/acompanhamento/")
+        assert response.status_code == 200
+        assert person.full_name.encode() in response.content
+
+    def test_move_updates_stage(self, pastor_client, person):
+        response = pastor_client.post(
+            f"/pessoas/acompanhamento/{person.pk}/mover/", {"stage": Person.PipelineStage.INTEGRATED}
+        )
+        assert response.status_code == 204
+        person.refresh_from_db()
+        assert person.pipeline_stage == Person.PipelineStage.INTEGRATED
+
+    def test_move_rejects_invalid_stage(self, pastor_client, person):
+        response = pastor_client.post(f"/pessoas/acompanhamento/{person.pk}/mover/", {"stage": "NAO_EXISTE"})
+        assert response.status_code == 400
+
+    def test_member_cannot_move(self, member_client, person):
+        response = member_client.post(
+            f"/pessoas/acompanhamento/{person.pk}/mover/", {"stage": Person.PipelineStage.INTEGRATED}
+        )
+        assert response.status_code == 403
+
+
+@pytest.mark.django_db
+class TestFamily:
+    def test_create_and_list(self, pastor_client):
+        response = pastor_client.post("/pessoas/familias/", {"name": "Família Silva"})
+        assert response.status_code == 302
+        assert Family.objects.filter(name="Família Silva").exists()
+
+    def test_detail_shows_members(self, pastor_client, person, church):
+        family = Family.objects.create(church=church, name="Família Souza")
+        person.family = family
+        person.save()
+        response = pastor_client.get(f"/pessoas/familias/{family.pk}/")
+        assert person.full_name.encode() in response.content
+
+    def test_delete_family_keeps_person(self, pastor_client, person, church):
+        family = Family.objects.create(church=church, name="Família Temp")
+        person.family = family
+        person.save()
+        response = pastor_client.post(f"/pessoas/familias/{family.pk}/excluir/")
+        assert response.status_code == 302
+        person.refresh_from_db()
+        assert person.family is None
+
+
+@pytest.mark.django_db
+class TestTag:
+    def test_create_and_list(self, pastor_client):
+        response = pastor_client.post("/pessoas/tags/", {"name": "Louvor", "color": "#ff0000"})
+        assert response.status_code == 302
+        assert Tag.objects.filter(name="Louvor").exists()
+
+    def test_delete_tag(self, pastor_client, person, church):
+        tag = Tag.objects.create(church=church, name="Temp")
+        person.tags.add(tag)
+        response = pastor_client.post(f"/pessoas/tags/{tag.pk}/excluir/")
+        assert response.status_code == 302
+        assert not Tag.objects.filter(pk=tag.pk).exists()

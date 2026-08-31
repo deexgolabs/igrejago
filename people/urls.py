@@ -1,0 +1,41 @@
+from django.urls import path
+
+from people.views import (
+    CampaignSendView,
+    FamilyDeleteView,
+    FamilyDetailView,
+    FamilyListView,
+    PersonCreateAccessView,
+    PersonCreateView,
+    PersonDeleteView,
+    PersonDetailView,
+    PersonImportTemplateView,
+    PersonImportView,
+    PersonListView,
+    PersonUpdateView,
+    PipelineBoardView,
+    PipelineMoveView,
+    TagDeleteView,
+    TagListView,
+)
+
+app_name = "people"
+
+urlpatterns = [
+    path("", PersonListView.as_view(), name="list"),
+    path("novo/", PersonCreateView.as_view(), name="create"),
+    path("campanha/", CampaignSendView.as_view(), name="campaign"),
+    path("importar/", PersonImportView.as_view(), name="import"),
+    path("importar/modelo/", PersonImportTemplateView.as_view(), name="import_template"),
+    path("acompanhamento/", PipelineBoardView.as_view(), name="pipeline_board"),
+    path("acompanhamento/<int:pk>/mover/", PipelineMoveView.as_view(), name="pipeline_move"),
+    path("familias/", FamilyListView.as_view(), name="family_list"),
+    path("familias/<int:pk>/", FamilyDetailView.as_view(), name="family_detail"),
+    path("familias/<int:pk>/excluir/", FamilyDeleteView.as_view(), name="family_delete"),
+    path("tags/", TagListView.as_view(), name="tag_list"),
+    path("tags/<int:pk>/excluir/", TagDeleteView.as_view(), name="tag_delete"),
+    path("<int:pk>/", PersonDetailView.as_view(), name="detail"),
+    path("<int:pk>/editar/", PersonUpdateView.as_view(), name="update"),
+    path("<int:pk>/excluir/", PersonDeleteView.as_view(), name="delete"),
+    path("<int:pk>/criar-acesso/", PersonCreateAccessView.as_view(), name="create_access"),
+]

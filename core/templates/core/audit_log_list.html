@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Auditoria{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold text-slate-900 mb-6">Auditoria</h1>
+
+<form method="get" class="bg-white border border-slate-200 rounded-xl p-4 mb-4 flex flex-wrap gap-3 items-end">
+    <div>
+        <label class="block text-xs font-semibold text-slate-500 mb-1">Model</label>
+        <select name="model_name" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm">
+            <option value="">Todos</option>
+            {% for value in model_choices %}
+            <option value="{{ value }}" {% if current_filters.model_name == value %}selected{% endif %}>{{ value }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div>
+        <label class="block text-xs font-semibold text-slate-500 mb-1">Ação</label>
+        <select name="action" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm">
+            <option value="">Todas</option>
+            {% for value, label in action_choices %}
+            <option value="{{ value }}" {% if current_filters.action == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <button type="submit" class="bg-slate-800 hover:bg-slate-900 text-white text-sm rounded-lg px-4 py-1.5">Filtrar</button>
+    {% if current_filters.model_name or current_filters.action %}
+    <a href="{% url 'core:audit_log' %}" class="text-sm text-slate-500 hover:text-slate-800">Limpar</a>
+    {% endif %}
+</form>
+
+<div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr>
+                <th class="text-left px-4 py-3">Quando</th>
+                <th class="text-left px-4 py-3">Usuário</th>
+                <th class="text-left px-4 py-3">Ação</th>
+                <th class="text-left px-4 py-3">Model</th>
+                <th class="text-left px-4 py-3">Registro</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+            {% for entry in entries %}
+            <tr class="hover:bg-slate-50">
+                <td class="px-4 py-3 text-slate-600 whitespace-nowrap">{{ entry.timestamp|date:"d/m/Y H:i" }}</td>
+                <td class="px-4 py-3 text-slate-600">{{ entry.user|default:"—" }}</td>
+                <td class="px-4 py-3">
+                    <span class="text-xs font-medium px-2 py-1 rounded-full
+                        {% if entry.action == 'CREATE' %}bg-emerald-50 text-emerald-700
+                        {% elif entry.action == 'DELETE' %}bg-red-50 text-red-700
+                        {% else %}bg-amber-50 text-amber-700{% endif %}">
+                        {{ entry.get_action_display }}
+                    </span>
+                </td>
+                <td class="px-4 py-3 text-slate-600">{{ entry.model_name }}</td>
+                <td class="px-4 py-3 text-slate-600">{{ entry.object_repr }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">Nenhum registro ainda.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if is_paginated %}
+<div class="flex gap-2 mt-4 text-sm">
+    {% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}" class="text-brand-700 hover:underline">« Anterior</a>{% endif %}
+    <span class="text-slate-500">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}" class="text-brand-700 hover:underline">Próxima »</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Segurança{% endblock %}
+{% block content %}
+<div class="max-w-md mx-auto mt-10 bg-white rounded-xl border border-slate-200 p-6">
+    <h1 class="text-xl font-bold text-slate-900 mb-4">Segurança da conta</h1>
+
+    {% if device and device.confirmed %}
+    <p class="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2 mb-4">
+        Autenticação em duas etapas está <strong>ativada</strong> nesta conta.
+    </p>
+    <form method="post" action="{% url 'accounts:totp_disable' %}"
+          onsubmit="return confirm('Desativar a autenticação em duas etapas desta conta?');">
+        {% csrf_token %}
+        <button type="submit" class="border border-red-200 text-red-600 rounded-lg px-4 py-2 text-sm hover:bg-red-50">
+            Desativar
+        </button>
+    </form>
+    {% else %}
+    <p class="text-sm text-slate-500 mb-4">
+        Autenticação em duas etapas está <strong>desativada</strong>. Recomendado especialmente
+        pra quem tem acesso ao Django admin (configuração técnica do WhatsApp, financeiro).
+    </p>
+    <a href="{% url 'accounts:totp_setup' %}" class="inline-block bg-brand-600 hover:bg-brand-700 text-white rounded-lg px-4 py-2 text-sm">
+        Ativar
+    </a>
+    {% endif %}
+</div>
+{% endblock %}

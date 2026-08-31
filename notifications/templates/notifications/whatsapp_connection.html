@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Conectar WhatsApp{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold text-slate-900 mb-1">WhatsApp</h1>
+<p class="text-sm text-slate-500 mb-6">
+    Conecta o número de WhatsApp da igreja — depois disso, campanhas, lembretes e mensagens
+    avulsas saem de verdade (não só no console).
+</p>
+
+<div class="bg-white border border-slate-200 rounded-xl p-6 max-w-sm text-center space-y-4">
+    {% if not email_confirmed %}
+        <p class="text-sm text-amber-600 mb-2">
+            Confirme o e-mail da igreja (link enviado no cadastro) antes de conectar o WhatsApp.
+        </p>
+        <form method="post" action="{% url 'notifications:resend_confirmation' %}">
+            {% csrf_token %}
+            <button type="submit" class="border border-slate-300 rounded-lg px-4 py-2 text-sm hover:bg-slate-100">
+                Reenviar e-mail de confirmação
+            </button>
+        </form>
+    {% elif not whatsapp_liberado %}
+        <p class="text-sm text-amber-600 mb-2">
+            O envio de WhatsApp não está incluído no seu plano atual.
+        </p>
+        <a href="{% url 'core:assinatura' %}" class="inline-block border border-slate-300 rounded-lg px-4 py-2 text-sm hover:bg-slate-100">
+            Ver planos
+        </a>
+    {% elif not configured %}
+        <p class="text-sm text-amber-600">
+            A conexão ainda não foi configurada pelo responsável técnico do sistema.
+        </p>
+    {% elif img_src %}
+        <p class="text-sm text-slate-600">
+            Escaneie no celular: WhatsApp → Configurações → Aparelhos conectados → Conectar um aparelho.
+        </p>
+        <img src="{{ img_src }}" alt="QR Code WhatsApp" class="mx-auto w-64 h-64">
+        <p class="text-xs text-slate-400">O código expira em alguns minutos.</p>
+        <form method="post" action="{% url 'notifications:whatsapp_connect' %}">
+            {% csrf_token %}
+            <button type="submit" class="border border-slate-300 rounded-lg px-4 py-2 text-sm hover:bg-slate-100">
+                Gerar novo QR code
+            </button>
+        </form>
+    {% elif connected %}
+        <p class="text-emerald-600 font-medium">Conectado</p>
+        <form method="post" action="{% url 'notifications:whatsapp_disconnect' %}">
+            {% csrf_token %}
+            <button type="submit" class="border border-slate-300 rounded-lg px-4 py-2 text-sm hover:bg-slate-100">
+                Desconectar
+            </button>
+        </form>
+    {% else %}
+        <p class="text-slate-500 text-sm">Desconectado.</p>
+        <form method="post" action="{% url 'notifications:whatsapp_connect' %}">
+            {% csrf_token %}
+            <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm rounded-lg px-4 py-2">
+                Conectar
+            </button>
+        </form>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Campanha de WhatsApp{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold text-slate-900 mb-1">Campanha de WhatsApp</h1>
+<p class="text-sm text-slate-500 mb-6">
+    Mensagem para <strong>{{ recipient_count }}</strong> pessoa(s) que batem com o filtro aplicado na listagem.
+</p>
+
+<form method="post" class="form-padrao bg-white border border-slate-200 rounded-xl p-6 max-w-lg space-y-3">
+    {% csrf_token %}
+    {% if templates %}
+    <p>
+        <label class="block text-xs font-semibold text-slate-500 mb-1">Usar modelo (opcional)</label>
+        <select onchange="if(this.value) document.getElementById('id_message').value = this.options[this.selectedIndex].dataset.body;">
+            <option value="">— escolha um modelo —</option>
+            {% for tpl in templates %}
+            <option value="{{ tpl.pk }}" data-body="{{ tpl.body }}">{{ tpl.name }}</option>
+            {% endfor %}
+        </select>
+    </p>
+    {% endif %}
+    <p>
+        <label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.campaign_label.label }}</label>
+        {{ form.campaign_label }}
+        <span class="text-xs text-slate-400">{{ form.campaign_label.help_text }}</span>
+    </p>
+    <p>
+        <label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.message.label }}</label>
+        {{ form.message }}
+        <span class="text-xs text-slate-400">{{ form.message.help_text }}</span>
+        {% if form.message.errors %}<p class="text-xs text-red-600 mt-1">{{ form.message.errors|striptags }}</p>{% endif %}
+    </p>
+    <div class="flex gap-2 pt-2">
+        <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm rounded-lg px-4 py-2">
+            Enviar para {{ recipient_count }} pessoa(s)
+        </button>
+        <a href="{% url 'people:list' %}" class="text-sm text-slate-500 hover:text-slate-800 px-4 py-2">Cancelar</a>
+    </div>
+</form>
+
+<style>
+.form-padrao textarea, .form-padrao input[type="text"], .form-padrao select { width: 100%; border: 1px solid #d1d5db; border-radius: 0.5rem; padding: 0.5rem 0.75rem; font-size: 0.875rem; }
+</style>
+{% endblock %}

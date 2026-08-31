@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Assinatura{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold text-slate-900 mb-1">Assinatura</h1>
+<p class="text-sm text-slate-500 mb-6">
+    Status atual:
+    <span class="font-medium">
+        {% if church.status == "trial" %}Em teste{% if church.trial_expira_em %} — vence em {{ church.trial_expira_em|date:"d/m/Y" }}{% endif %}
+        {% elif church.status == "ativo" %}Ativo{% if church.plano %} — Plano {{ church.get_plano_display }}{% endif %}
+        {% else %}Suspenso{% endif %}
+    </span>
+</p>
+
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-6 max-w-2xl">
+    {% for plano_key, plano in planos.items %}
+    <div class="bg-white border border-slate-200 rounded-xl p-6">
+        <h2 class="text-lg font-bold text-slate-900 mb-1">{{ plano.nome }}</h2>
+        <p class="text-2xl font-bold text-slate-900 mb-3">R$ {{ plano.preco }}<span class="text-sm font-normal text-slate-400">/mês</span></p>
+        <ul class="text-sm text-slate-600 space-y-1 mb-4">
+            {% if plano.limite_pessoas %}
+            <li>Até {{ plano.limite_pessoas }} pessoas cadastradas</li>
+            {% else %}
+            <li>Pessoas cadastradas ilimitadas</li>
+            {% endif %}
+            <li>{% if plano.whatsapp %}WhatsApp liberado{% else %}Sem envio de WhatsApp{% endif %}</li>
+        </ul>
+        <form method="post" action="{% url 'core:assinatura_checkout' plano_key %}">
+            {% csrf_token %}
+            <button type="submit" class="w-full bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg py-2.5">
+                Assinar {{ plano.nome }}
+            </button>
+        </form>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

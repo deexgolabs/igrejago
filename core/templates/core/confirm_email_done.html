@@ -1,0 +1,13 @@
+{% extends "public_base.html" %}
+{% block title %}E-mail confirmado{% endblock %}
+{% block content %}
+<div class="bg-white border border-slate-200 rounded-xl p-6 text-center">
+    <h1 class="text-lg font-bold text-slate-900 mb-2">E-mail confirmado!</h1>
+    <p class="text-sm text-slate-500 mb-4">
+        {% if church %}O e-mail de "{{ church.name }}" foi confirmado — o envio de WhatsApp já está liberado.{% else %}Confirmado com sucesso.{% endif %}
+    </p>
+    <a href="{% url 'accounts:login' %}" class="inline-block text-white font-medium rounded-lg px-4 py-2 text-sm" style="background:{{ paleta_marca.600 }}">
+        Entrar
+    </a>
+</div>
+{% endblock %}

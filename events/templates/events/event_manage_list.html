@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Eventos{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-slate-900">Eventos</h1>
+    <a href="{% url 'events:create' %}" class="text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg px-3 py-2">+ Novo evento</a>
+</div>
+
+<div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr>
+                <th class="text-left px-4 py-3">Título</th>
+                <th class="text-left px-4 py-3">Data</th>
+                <th class="text-left px-4 py-3">Status</th>
+                <th class="text-left px-4 py-3">Valor</th>
+                <th class="text-right px-4 py-3">Ações</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+            {% for event in events %}
+            <tr class="hover:bg-slate-50">
+                <td class="px-4 py-3 font-medium text-slate-800">
+                    <a href="{% url 'events_public:detail' event.church.slug event.slug %}" class="hover:text-brand-700">{{ event.title }}</a>
+                </td>
+                <td class="px-4 py-3 text-slate-600">{{ event.start_datetime|date:"d/m/Y H:i" }}</td>
+                <td class="px-4 py-3 text-slate-600">{{ event.get_status_display }}</td>
+                <td class="px-4 py-3 text-slate-600">
+                    {% if event.is_paid %}R$ {{ event.price }}{% else %}Gratuito{% endif %}
+                </td>
+                <td class="px-4 py-3 text-right space-x-2">
+                    <a href="{% url 'events:registrations' event.slug %}" class="text-slate-500 hover:text-brand-700">Inscritos</a>
+                    <a href="{% url 'events:update' event.slug %}" class="text-slate-500 hover:text-brand-700">Editar</a>
+                    <a href="{% url 'events:delete' event.slug %}" class="text-slate-500 hover:text-red-600">Excluir</a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">Nenhum evento cadastrado.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

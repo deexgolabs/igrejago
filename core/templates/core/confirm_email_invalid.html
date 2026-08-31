@@ -1,0 +1,11 @@
+{% extends "public_base.html" %}
+{% block title %}Link inválido{% endblock %}
+{% block content %}
+<div class="bg-white border border-slate-200 rounded-xl p-6 text-center">
+    <h1 class="text-lg font-bold text-slate-900 mb-2">Link inválido ou expirado</h1>
+    <p class="text-sm text-slate-500">
+        Esse link de confirmação não é válido ou já venceu (válido por 3 dias). Entre no sistema e peça
+        um novo e-mail de confirmação em Mensagens → Conectar WhatsApp.
+    </p>
+</div>
+{% endblock %}

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Check-in{% endblock %}
+{% block content %}
+<div class="max-w-sm mx-auto bg-white border border-slate-200 rounded-xl p-8 text-center">
+    {% if already_checked_in %}
+    <p class="text-3xl mb-3">⚠️</p>
+    <h2 class="font-bold text-amber-600 mb-1">Check-in já feito</h2>
+    <p class="text-sm text-slate-500">{{ registration.full_name }} já entrou às {{ registration.checked_in_at|date:"H:i" }}.</p>
+    {% else %}
+    <p class="text-3xl mb-3">✅</p>
+    <h2 class="font-bold text-emerald-600 mb-1">Check-in confirmado</h2>
+    <p class="text-sm text-slate-500">{{ registration.full_name }} — {{ registration.event.title }}</p>
+    {% endif %}
+    <a href="{% url 'events:registrations' registration.event.slug %}" class="inline-block mt-4 text-sm text-brand-700 hover:underline">Ver lista de inscritos</a>
+</div>
+{% endblock %}

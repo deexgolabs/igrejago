@@ -1,0 +1,45 @@
+from django.urls import path
+
+from finance.views import (
+    BudgetView,
+    DonationConfirmPixView,
+    DonationCreateView,
+    DonationListView,
+    DonationMercadoPagoStartView,
+    DonationPayView,
+    DonationReceiptPDFView,
+    DonationWebhookView,
+    RecurringPledgeDeleteView,
+    RecurringPledgeListView,
+    RecurringPledgeToggleView,
+    TransactionCreateView,
+    TransactionDeleteView,
+    TransactionExportExcelView,
+    TransactionExportView,
+    TransactionListView,
+    TransactionUpdateView,
+)
+
+app_name = "finance"
+
+urlpatterns = [
+    path("", TransactionListView.as_view(), name="list"),
+    path("exportar/", TransactionExportView.as_view(), name="export"),
+    path("exportar/excel/", TransactionExportExcelView.as_view(), name="export_excel"),
+    path("orcamento/", BudgetView.as_view(), name="budget"),
+    path("novo/", TransactionCreateView.as_view(), name="create"),
+    path("<int:pk>/editar/", TransactionUpdateView.as_view(), name="update"),
+    path("<int:pk>/excluir/", TransactionDeleteView.as_view(), name="delete"),
+
+    path("recorrentes/", RecurringPledgeListView.as_view(), name="recurring_pledges"),
+    path("recorrentes/<int:pk>/alternar/", RecurringPledgeToggleView.as_view(), name="recurring_pledge_toggle"),
+    path("recorrentes/<int:pk>/excluir/", RecurringPledgeDeleteView.as_view(), name="recurring_pledge_delete"),
+
+    path("doacoes/", DonationListView.as_view(), name="donation_list"),
+    path("doacoes/nova/", DonationCreateView.as_view(), name="donation_create"),
+    path("doacoes/<int:pk>/pagar/", DonationPayView.as_view(), name="donation_pay"),
+    path("doacoes/<int:pk>/pagar/mercadopago/", DonationMercadoPagoStartView.as_view(), name="donation_mercadopago_start"),
+    path("doacoes/<int:pk>/confirmar/", DonationConfirmPixView.as_view(), name="donation_confirm"),
+    path("doacoes/<int:pk>/recibo.pdf", DonationReceiptPDFView.as_view(), name="donation_receipt"),
+    path("doacoes/webhook/mercadopago/", DonationWebhookView.as_view(), name="donation_webhook"),
+]

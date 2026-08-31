@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ family.name }}{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold text-slate-900 mb-6">{{ family.name }}</h1>
+
+<div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr>
+                <th class="text-left px-4 py-3">Nome</th>
+                <th class="text-left px-4 py-3">Cargo</th>
+                <th class="text-left px-4 py-3">Telefone</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+            {% for person in family.members.all %}
+            <tr class="hover:bg-slate-50">
+                <td class="px-4 py-3">
+                    <a href="{% url 'people:detail' person.pk %}" class="font-medium text-slate-800 hover:text-brand-700">{{ person.full_name }}</a>
+                </td>
+                <td class="px-4 py-3 text-slate-600">{{ person.get_role_display }}</td>
+                <td class="px-4 py-3 text-slate-600">{{ person.phone|default:"—" }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="3" class="px-4 py-8 text-center text-slate-400">Nenhuma pessoa vinculada ainda — edite o cadastro da pessoa e escolha essa família.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<a href="{% url 'people:family_list' %}" class="inline-block mt-4 text-sm text-brand-700 hover:underline">← Voltar para famílias</a>
+{% endblock %}

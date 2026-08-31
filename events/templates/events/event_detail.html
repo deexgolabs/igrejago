@@ -1,0 +1,44 @@
+{% extends "public_base.html" %}
+{% block title %}{{ event.title }}{% endblock %}
+{% block content %}
+<div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    {% if event.image %}
+    <img src="{{ event.image.url }}" class="w-full h-48 object-cover">
+    {% endif %}
+    <div class="p-6">
+        <h1 class="text-xl font-bold text-slate-900 mb-1">{{ event.title }}</h1>
+        <p class="text-sm text-slate-500 mb-4">{{ event.start_datetime|date:"d/m/Y H:i" }} · {{ event.location }}</p>
+
+        {{ event.description|linebreaks }}
+
+        {% if event.extra_info %}
+        <div class="bg-slate-50 border border-slate-200 rounded-lg p-4 mt-4 text-sm text-slate-600">
+            {{ event.extra_info|linebreaks }}
+        </div>
+        {% endif %}
+
+        <p class="mt-4 mb-6">
+            {% if event.is_paid %}
+                <span class="font-semibold" style="color:{{ paleta_marca.700 }}">R$ {{ event.price }}</span>
+            {% else %}
+                <span class="font-semibold text-emerald-600">Gratuito</span>
+            {% endif %}
+            {% if event.capacity %}
+            <span class="text-slate-400 text-sm"> · {{ event.spots_left }} vaga(s) restante(s)</span>
+            {% endif %}
+        </p>
+
+        {% if event.status != "PUBLISHED" %}
+        <p class="text-sm text-slate-400">Inscrições não estão abertas para este evento.</p>
+        {% else %}
+        {% if event.is_full %}
+        <p class="text-xs text-amber-600 mb-2">Vagas esgotadas — inscreva-se e entre na lista de espera.</p>
+        {% endif %}
+        <a href="{% url 'events_public:register' event.church.slug event.slug %}"
+           class="block text-center text-white font-medium rounded-lg py-2.5 text-sm" style="background:{{ paleta_marca.600 }}">
+            {% if event.is_full %}Entrar na lista de espera{% else %}Inscrever-se{% endif %}
+        </a>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

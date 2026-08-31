@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Revisar importação{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold text-slate-900 mb-1">Revisar importação</h1>
+<p class="text-sm text-slate-500 mb-6">
+    {{ formset.total_form_count }} linha(s) lida(s) da planilha. Corrija o que precisar e desmarque
+    "Importar" para pular uma linha — nada é salvo até você confirmar no final.
+</p>
+
+<form method="post" class="form-padrao">
+    {% csrf_token %}
+    <input type="hidden" name="step" value="review">
+    {{ formset.management_form }}
+
+    {% if formset.non_form_errors %}
+    <p class="text-sm text-red-600 mb-3">{{ formset.non_form_errors }}</p>
+    {% endif %}
+
+    <div class="bg-white border border-slate-200 rounded-xl overflow-x-auto mb-4">
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+                <tr>
+                    <th class="text-center px-3 py-3">Importar</th>
+                    <th class="text-left px-3 py-3">Nome</th>
+                    <th class="text-left px-3 py-3">Telefone</th>
+                    <th class="text-left px-3 py-3">E-mail</th>
+                    <th class="text-left px-3 py-3">Nascimento</th>
+                    <th class="text-left px-3 py-3">Cargo</th>
+                    <th class="text-left px-3 py-3">Status</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for row, duplicate in rows_with_matches %}
+                <tr class="{% if duplicate %}bg-amber-50{% endif %}">
+                    <td class="px-3 py-2 text-center">{{ row.include }}</td>
+                    <td class="px-3 py-2">
+                        {{ row.full_name }}
+                        {% if duplicate %}
+                        <p class="text-xs text-amber-600">⚠ já existe: <a href="{% url 'people:detail' duplicate.pk %}" target="_blank" class="underline">{{ duplicate.full_name }}</a></p>
+                        {% endif %}
+                        {% if row.full_name.errors %}<p class="text-xs text-red-600">{{ row.full_name.errors|striptags }}</p>{% endif %}
+                    </td>
+                    <td class="px-3 py-2">{{ row.phone }}</td>
+                    <td class="px-3 py-2">
+                        {{ row.email }}
+                        {% if row.email.errors %}<p class="text-xs text-red-600">{{ row.email.errors|striptags }}</p>{% endif %}
+                    </td>
+                    <td class="px-3 py-2">{{ row.birth_date }}</td>
+                    <td class="px-3 py-2">{{ row.role }}</td>
+                    <td class="px-3 py-2">{{ row.status }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="flex gap-2">
+        <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm rounded-lg px-4 py-2">Confirmar importação</button>
+        <a href="{% url 'people:import' %}" class="text-sm text-slate-500 hover:text-slate-800 px-4 py-2">Cancelar</a>
+    </div>
+</form>
+
+<style>
+.form-padrao input[type="text"], .form-padrao input[type="email"], .form-padrao input[type="date"], .form-padrao select {
+    border: 1px solid #d1d5db; border-radius: 0.4rem; padding: 0.25rem 0.5rem; font-size: 0.8rem; min-width: 8rem;
+}
+</style>
+{% endblock %}

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}{{ person.full_name }}{% endblock %}
+{% block content %}
+<div class="flex items-start justify-between mb-1">
+    <h1 class="text-2xl font-bold text-slate-900">{{ person.full_name }}</h1>
+    {% if user.can_manage_people %}
+    <div class="flex gap-2 text-sm">
+        {% if not person.user_account %}
+        <form method="post" action="{% url 'people:create_access' person.pk %}" onsubmit="return confirm('Criar acesso ao sistema para {{ person.full_name }}? Um e-mail será enviado para ela escolher a senha.');">
+            {% csrf_token %}
+            <button type="submit" class="border border-slate-300 rounded-lg px-3 py-1.5 hover:bg-slate-100">Criar acesso</button>
+        </form>
+        {% endif %}
+        <a href="{% url 'people:update' person.pk %}" class="border border-slate-300 rounded-lg px-3 py-1.5 hover:bg-slate-100">Editar</a>
+        <a href="{% url 'people:delete' person.pk %}" class="border border-red-200 text-red-600 rounded-lg px-3 py-1.5 hover:bg-red-50">Excluir</a>
+    </div>
+    {% endif %}
+</div>
+<p class="text-slate-500 mb-6">{{ person.get_role_display }} · {{ person.get_status_display }}</p>
+
+<div class="bg-white rounded-xl border border-slate-200 p-5 space-y-2 text-sm">
+    <p><span class="text-slate-500">Telefone:</span> {{ person.phone|default:"—" }}</p>
+    <p><span class="text-slate-500">E-mail:</span> {{ person.email|default:"—" }}</p>
+    <p><span class="text-slate-500">Idade:</span> {{ person.age|default:"—" }}</p>
+    <p><span class="text-slate-500">Departamento:</span> {{ person.department|default:"—" }}</p>
+    <p><span class="text-slate-500">Família:</span>
+        {% if person.family %}<a href="{% url 'people:family_detail' person.family.pk %}" class="text-brand-700 hover:underline">{{ person.family.name }}</a>{% else %}—{% endif %}
+    </p>
+    <p><span class="text-slate-500">Etapa de acompanhamento:</span> {{ person.get_pipeline_stage_display }}</p>
+    <p><span class="text-slate-500">Tags:</span>
+        {% for tag in person.tags.all %}
+        <span class="inline-block text-xs font-medium px-2 py-0.5 rounded-full text-white mr-1" style="background:{{ tag.color }}">{{ tag.name }}</span>
+        {% empty %}—{% endfor %}
+    </p>
+    <p><span class="text-slate-500">Acesso ao sistema:</span>
+        {% if person.user_account %}sim ({{ person.user_account.username }}){% else %}não{% endif %}
+    </p>
+</div>
+
+<a href="{% url 'people:list' %}" class="inline-block mt-4 text-sm text-brand-700 hover:underline">← Voltar para a lista</a>
+{% endblock %}

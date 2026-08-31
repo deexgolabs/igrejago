@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Meu espaço{% endblock %}
+{% block content %}
+<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+    <h1 class="text-2xl font-bold text-slate-900">Olá, {{ user.get_full_name|default:user.username }}</h1>
+    <div class="flex flex-wrap gap-2">
+        {% if vapid_public_key %}
+        <button id="btn-ativar-push" type="button" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Ativar notificações</button>
+        {% endif %}
+        <a href="{% url 'core:meus_dados' %}" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Meus dados</a>
+        <a href="{% url 'finance:donation_create' %}" class="text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg px-3 py-2">Fazer doação</a>
+    </div>
+</div>
+
+{% if not person %}
+<div class="bg-amber-50 border border-amber-200 rounded-xl p-5 text-sm text-amber-700">
+    Seu login ainda não está vinculado a um cadastro de pessoa. Peça para a secretaria
+    associar sua conta ao seu cadastro para ver seus dados, eventos e célula aqui.
+</div>
+{% else %}
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">Meus dados</h2>
+        <p class="text-sm text-slate-600 py-1"><span class="text-slate-400">Nome:</span> {{ person.full_name }}</p>
+        <p class="text-sm text-slate-600 py-1"><span class="text-slate-400">Cargo:</span> {{ person.get_role_display }}</p>
+        <p class="text-sm text-slate-600 py-1"><span class="text-slate-400">Telefone:</span> {{ person.phone|default:"—" }}</p>
+        <p class="text-sm text-slate-600 py-1"><span class="text-slate-400">E-mail:</span> {{ person.email|default:"—" }}</p>
+    </div>
+
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">Minha(s) célula(s)</h2>
+        {% for cell in my_cells %}
+        <p class="text-sm text-slate-600 py-1 border-b border-slate-100 last:border-0">
+            {{ cell.name }}
+            {% if cell.meeting_weekday is not None %}— {{ cell.get_meeting_weekday_display }} {{ cell.meeting_time|default:"" }}{% endif %}
+        </p>
+        {% empty %}
+        <p class="text-sm text-slate-400">Você ainda não está em nenhuma célula.</p>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="bg-white border border-slate-200 rounded-xl p-5 mt-6">
+    <h2 class="text-sm font-semibold text-slate-700 mb-3">Meus eventos</h2>
+    {% for reg in my_registrations %}
+    <div class="flex justify-between text-sm py-1.5 border-b border-slate-100 last:border-0">
+        <span class="text-slate-700">{{ reg.event.title }}</span>
+        <span class="text-xs font-medium px-2 py-1 rounded-full
+            {% if reg.payment_status == 'PAID' or reg.payment_status == 'FREE' %}bg-emerald-50 text-emerald-700
+            {% elif reg.payment_status == 'PENDING' %}bg-amber-50 text-amber-700
+            {% else %}bg-slate-100 text-slate-600{% endif %}">
+            {{ reg.get_payment_status_display }}
+        </span>
+    </div>
+    {% empty %}
+    <p class="text-sm text-slate-400">Nenhuma inscrição em evento ainda.</p>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if vapid_public_key %}
+<script>
+function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = atob(base64);
+    return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+}
+function getCookie(name) {
+    const match = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+    return match ? match.pop() : '';
+}
+document.getElementById('btn-ativar-push')?.addEventListener('click', async () => {
+    try {
+        const registration = await navigator.serviceWorker.ready;
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') { alert('Permissão de notificação negada.'); return; }
+        const subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array('{{ vapid_public_key }}'),
+        });
+        await fetch("{% url 'notifications:push_subscribe' %}", {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken')},
+            body: JSON.stringify(subscription.toJSON()),
+        });
+        alert('Notificações ativadas!');
+    } catch (err) {
+        alert('Não foi possível ativar as notificações neste navegador.');
+    }
+});
+</script>
+{% endif %}
+{% endblock %}

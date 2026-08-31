@@ -1,0 +1,56 @@
+{% extends "public_base.html" %}
+{% block title %}Cadastre sua igreja{% endblock %}
+{% block content %}
+<h1 class="text-lg font-bold text-slate-900 text-center mb-1">Cadastre sua igreja</h1>
+<p class="text-center text-slate-500 mb-6">
+    Comece agora mesmo — 30 dias de teste grátis, sem cartão de crédito.
+</p>
+
+<form method="post" class="form-padrao bg-white border border-slate-200 rounded-xl p-6 space-y-1">
+    {% csrf_token %}
+    {# Honeypot anti-bot: invisível pra gente, mas bots que preenchem tudo indiscriminadamente costumam preencher. #}
+    <div style="position:absolute; left:-9999px; top:-9999px;" aria-hidden="true">
+        <label for="id_website">Deixe este campo em branco</label>
+        {{ form.website }}
+    </div>
+
+    <p>
+        <label>{{ form.church_name.label }}</label>
+        {{ form.church_name }}
+        {% if form.church_name.errors %}<p class="text-xs text-red-600 mt-1">{{ form.church_name.errors|striptags }}</p>{% endif %}
+    </p>
+    <p>
+        <label>{{ form.pastor_name.label }}</label>
+        {{ form.pastor_name }}
+        {% if form.pastor_name.errors %}<p class="text-xs text-red-600 mt-1">{{ form.pastor_name.errors|striptags }}</p>{% endif %}
+    </p>
+    <p>
+        <label>{{ form.username.label }}</label>
+        {{ form.username }}
+        {% if form.username.errors %}<p class="text-xs text-red-600 mt-1">{{ form.username.errors|striptags }}</p>{% endif %}
+    </p>
+    <p>
+        <label>{{ form.email.label }}</label>
+        {{ form.email }}
+        {% if form.email.errors %}<p class="text-xs text-red-600 mt-1">{{ form.email.errors|striptags }}</p>{% endif %}
+    </p>
+    <p>
+        <label>{{ form.password.label }}</label>
+        {{ form.password }}
+        {% if form.password.errors %}<p class="text-xs text-red-600 mt-1">{{ form.password.errors|striptags }}</p>{% endif %}
+    </p>
+
+    <p class="text-xs text-slate-400 pt-2">
+        Ao cadastrar, você concorda com nossa
+        <a href="{% url 'core:privacy_policy' %}" class="underline" target="_blank">Política de Privacidade</a>.
+    </p>
+
+    <button type="submit" class="w-full text-white font-medium rounded-lg py-2.5 text-sm mt-3" style="background:{{ paleta_marca.600 }}">
+        Criar minha conta
+    </button>
+
+    <p class="text-center text-xs text-slate-400 pt-2">
+        Já tem conta? <a href="{% url 'accounts:login' %}" class="underline">Entrar</a>
+    </p>
+</form>
+{% endblock %}

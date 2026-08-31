@@ -1,0 +1,26 @@
+{% extends "public_base.html" %}
+{% block title %}Inscrição confirmada{% endblock %}
+{% block content %}
+<div class="bg-white border border-slate-200 rounded-xl p-8 text-center">
+    {% if registration.on_waitlist %}
+    <p class="text-3xl mb-3">⏳</p>
+    <h2 class="font-bold text-slate-900 mb-1">Você está na lista de espera</h2>
+    <p class="text-sm text-slate-500">
+        {{ registration.full_name }}, o evento <strong>{{ registration.event.title }}</strong> está com as vagas
+        esgotadas no momento. Avisaremos por WhatsApp se abrir uma vaga.
+    </p>
+    {% else %}
+    <p class="text-3xl mb-3">✅</p>
+    <h2 class="font-bold text-slate-900 mb-1">Inscrição confirmada!</h2>
+    <p class="text-sm text-slate-500 mb-4">
+        {{ registration.full_name }}, sua vaga em <strong>{{ registration.event.title }}</strong> está garantida.
+    </p>
+    {% if checkin_qr_data_uri %}
+    <div class="border-t border-slate-100 pt-4">
+        <p class="text-xs text-slate-400 mb-2">Apresente este QR code na entrada do evento:</p>
+        <img src="{{ checkin_qr_data_uri }}" alt="QR code de check-in" class="mx-auto w-40 h-40">
+    </div>
+    {% endif %}
+    {% endif %}
+</div>
+{% endblock %}

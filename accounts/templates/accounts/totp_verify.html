@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Verificação em duas etapas{% endblock %}
+{% block content %}
+<div class="max-w-sm mx-auto mt-16 bg-white rounded-xl border border-slate-200 p-6">
+    <h1 class="text-xl font-bold text-slate-900 mb-1">Verificação em duas etapas</h1>
+    <p class="text-sm text-slate-500 mb-4">Digite o código de 6 dígitos do seu app autenticador.</p>
+    <form method="post" class="space-y-4">
+        {% csrf_token %}
+        <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" autofocus
+               maxlength="6" placeholder="000000"
+               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm text-center tracking-widest text-lg">
+        <button type="submit" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-medium rounded-lg py-2 text-sm">
+            Confirmar
+        </button>
+    </form>
+    <p class="text-center mt-4">
+        <a href="{% url 'accounts:login' %}" class="text-xs text-slate-500 hover:text-brand-700">← Voltar para o login</a>
+    </p>
+</div>
+{% endblock %}

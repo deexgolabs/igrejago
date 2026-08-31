@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Respostas — {{ custom_form.title }}{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-900">Respostas — {{ custom_form.title }}</h1>
+        <p class="text-sm text-slate-500"><a href="{% url 'custom_forms:list' %}" class="text-brand-700 hover:underline">← Formulários</a></p>
+    </div>
+    <a href="{% url 'custom_forms:response_export' custom_form.pk %}" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Exportar CSV</a>
+</div>
+
+<div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr>
+                <th class="text-left px-4 py-3">Enviado em</th>
+                {% for field in fields %}
+                <th class="text-left px-4 py-3">{{ field.label }}</th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+            {% for row in rows %}
+            <tr class="hover:bg-slate-50">
+                <td class="px-4 py-3 text-slate-600 whitespace-nowrap">{{ row.response.submitted_at|date:"d/m/Y H:i" }}</td>
+                {% for answer in row.answers %}
+                <td class="px-4 py-3 text-slate-600">
+                    {% if answer.file %}
+                    <a href="{{ answer.file.url }}" target="_blank" rel="noopener" class="text-brand-700 hover:underline">Baixar arquivo</a>
+                    {% else %}
+                    {{ answer.value|default:"—" }}
+                    {% endif %}
+                </td>
+                {% endfor %}
+            </tr>
+            {% empty %}
+            <tr><td colspan="{{ fields|length|add:1 }}" class="px-4 py-8 text-center text-slate-400">Nenhuma resposta recebida ainda.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

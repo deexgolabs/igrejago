@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Inscritos — {{ event.title }}{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-900">Inscritos — {{ event.title }}</h1>
+        <p class="text-sm text-slate-500">{{ registrations|length }} inscrição(ões) nesta página</p>
+    </div>
+    <a href="{% url 'events:registrations_export' event.slug %}" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">
+        Exportar CSV
+    </a>
+</div>
+
+<div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr>
+                <th class="text-left px-4 py-3">Nome</th>
+                <th class="text-left px-4 py-3">Telefone</th>
+                <th class="text-left px-4 py-3">E-mail</th>
+                <th class="text-left px-4 py-3">Pagamento</th>
+                <th class="text-left px-4 py-3">Check-in</th>
+                <th class="text-right px-4 py-3">Ações</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+            {% for reg in registrations %}
+            <tr class="hover:bg-slate-50">
+                <td class="px-4 py-3 font-medium text-slate-800">{{ reg.full_name }}</td>
+                <td class="px-4 py-3 text-slate-600">{{ reg.phone|default:"—" }}</td>
+                <td class="px-4 py-3 text-slate-600">{{ reg.email|default:"—" }}</td>
+                <td class="px-4 py-3">
+                    {% if reg.on_waitlist %}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full bg-slate-100 text-slate-600">Lista de espera</span>
+                    {% else %}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full
+                        {% if reg.payment_status == 'PAID' %}bg-emerald-50 text-emerald-700
+                        {% elif reg.payment_status == 'PENDING' %}bg-amber-50 text-amber-700
+                        {% elif reg.payment_status == 'CANCELLED' %}bg-red-50 text-red-700
+                        {% else %}bg-slate-100 text-slate-600{% endif %}">
+                        {{ reg.get_payment_status_display }}
+                    </span>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-3 text-slate-600">
+                    {% if reg.checked_in_at %}<span class="text-emerald-600 text-xs font-medium">{{ reg.checked_in_at|date:"d/m H:i" }}</span>{% else %}—{% endif %}
+                </td>
+                <td class="px-4 py-3 text-right space-x-2">
+                    {% if reg.on_waitlist %}
+                    <form method="post" action="{% url 'events:registration_promote' event.slug reg.pk %}" class="inline">
+                        {% csrf_token %}
+                        <button type="submit" class="text-brand-700 hover:text-brand-900 text-sm">Promover</button>
+                    </form>
+                    {% elif reg.payment_status == 'PENDING' %}
+                    <form method="post" action="{% url 'events:registration_mark_paid' event.slug reg.pk %}" class="inline">
+                        {% csrf_token %}
+                        <button type="submit" class="text-emerald-600 hover:text-emerald-800 text-sm">Confirmar pagamento</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">Nenhuma inscrição ainda.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

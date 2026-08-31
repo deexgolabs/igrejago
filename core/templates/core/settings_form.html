@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Configurações{% endblock %}
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-2xl font-bold text-slate-900 mb-3">Configurações</h1>
+    <div class="flex flex-wrap gap-2 text-sm">
+        <a href="{% url 'notifications:whatsapp_connection' %}" class="border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Conectar WhatsApp</a>
+        <a href="{% url 'notifications:template_list' %}" class="border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Modelos de mensagem</a>
+        <a href="{% url 'core:audit_log' %}" class="border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Auditoria</a>
+        <a href="{% url 'core:data_deletion_requests' %}" class="border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Solicitações de exclusão</a>
+        <a href="{% url 'core:assinatura' %}" class="border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Assinatura</a>
+    </div>
+</div>
+
+<form method="post" enctype="multipart/form-data" class="form-padrao space-y-6 max-w-3xl">
+    {% csrf_token %}
+
+    <section class="bg-white border border-slate-200 rounded-xl p-6">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">Igreja</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div><label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.name.label }}</label>{{ form.name }}{% if form.name.errors %}<p class="text-xs text-red-600 mt-1">{{ form.name.errors|striptags }}</p>{% endif %}</div>
+            <div><label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.pastor_name.label }}</label>{{ form.pastor_name }}</div>
+            <div><label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.logo.label }}</label>{{ form.logo }}</div>
+            <div><label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.brand_color.label }}</label>{{ form.brand_color }}</div>
+        </div>
+    </section>
+
+    <section class="bg-white border border-slate-200 rounded-xl p-6">
+        <h2 class="text-sm font-semibold text-slate-700 mb-1">WhatsApp — mensagens e fila</h2>
+        <p class="text-xs text-slate-400 mb-4">
+            O intervalo entre envios é o que evita o número ser marcado como spam pelo WhatsApp — não diminua sem necessidade.
+            Pra conectar/desconectar o número, use
+            <a href="{% url 'notifications:whatsapp_connection' %}" class="underline">Conectar WhatsApp</a>.
+        </p>
+        <div class="grid grid-cols-1 gap-4 mb-4">
+            <div><label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.whatsapp_absence_template.label }}</label>{{ form.whatsapp_absence_template }}<span class="text-xs text-slate-400">{{ form.whatsapp_absence_template.help_text }}</span></div>
+            <div><label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.whatsapp_birthday_template.label }}</label>{{ form.whatsapp_birthday_template }}<span class="text-xs text-slate-400">{{ form.whatsapp_birthday_template.help_text }}</span></div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div><label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.whatsapp_send_interval_seconds.label }}</label>{{ form.whatsapp_send_interval_seconds }}<span class="text-xs text-slate-400">{{ form.whatsapp_send_interval_seconds.help_text }}</span></div>
+            <div><label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.whatsapp_batch_size.label }}</label>{{ form.whatsapp_batch_size }}<span class="text-xs text-slate-400">{{ form.whatsapp_batch_size.help_text }}</span></div>
+            <div><label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.whatsapp_max_retries.label }}</label>{{ form.whatsapp_max_retries }}<span class="text-xs text-slate-400">{{ form.whatsapp_max_retries.help_text }}</span></div>
+        </div>
+    </section>
+
+    <section class="bg-white border border-slate-200 rounded-xl p-6">
+        <h2 class="text-sm font-semibold text-slate-700 mb-1">Alertas administrativos</h2>
+        <p class="text-xs text-slate-400 mb-4">
+            Ex.: avisa por e-mail se o WhatsApp desconectar sozinho — precisa do comando
+            <code class="bg-slate-100 px-1 rounded">verificar_conexao_whatsapp</code> agendado (ver DEPLOY.md).
+        </p>
+        <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.admin_alert_emails.label }}</label>
+            {{ form.admin_alert_emails }}
+            <span class="text-xs text-slate-400">{{ form.admin_alert_emails.help_text }}</span>
+        </div>
+    </section>
+
+    <section class="bg-white border border-slate-200 rounded-xl p-6">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">PIX (pagamento de eventos)</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div><label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.pix_key.label }}</label>{{ form.pix_key }}<span class="text-xs text-slate-400">{{ form.pix_key.help_text }}</span></div>
+            <div><label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.pix_key_type.label }}</label>{{ form.pix_key_type }}</div>
+            <div><label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.pix_receiver_name.label }}</label>{{ form.pix_receiver_name }}<span class="text-xs text-slate-400">{{ form.pix_receiver_name.help_text }}</span></div>
+            <div><label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.pix_receiver_city.label }}</label>{{ form.pix_receiver_city }}<span class="text-xs text-slate-400">{{ form.pix_receiver_city.help_text }}</span></div>
+        </div>
+    </section>
+
+    <section class="bg-white border border-slate-200 rounded-xl p-6">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">Mercado Pago (opcional)</h2>
+        <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.mercadopago_access_token.label }}</label>
+            {{ form.mercadopago_access_token }}
+            <span class="text-xs text-slate-400">{{ form.mercadopago_access_token.help_text }}</span>
+        </div>
+    </section>
+
+    <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm rounded-lg px-4 py-2">Salvar configurações</button>
+</form>
+
+<style>
+.form-padrao input[type="text"], .form-padrao input[type="url"], .form-padrao input[type="number"],
+.form-padrao select, .form-padrao textarea {
+    width: 100%; border: 1px solid #d1d5db; border-radius: 0.5rem; padding: 0.4rem 0.65rem; font-size: 0.875rem;
+}
+</style>
+{% endblock %}

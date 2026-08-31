@@ -1,0 +1,22 @@
+{% extends "public_base.html" %}
+{% block title %}Inscrição — {{ event.title }}{% endblock %}
+{% block content %}
+<h2 class="text-lg font-bold text-slate-900 mb-1">Inscrição — {{ event.title }}</h2>
+<p class="text-sm text-slate-500 mb-6">
+    {% if event.is_paid %}R$ {{ event.price }}{% else %}Evento gratuito{% endif %}
+</p>
+
+<form method="post" class="form-padrao bg-white border border-slate-200 rounded-xl p-6 space-y-1">
+    {% csrf_token %}
+    {% for field in form %}
+    <p>
+        <label>{{ field.label }}</label>
+        {{ field }}
+        {% if field.errors %}<p class="text-xs text-red-600 mt-1">{{ field.errors|striptags }}</p>{% endif %}
+    </p>
+    {% endfor %}
+    <button type="submit" class="w-full text-white font-medium rounded-lg py-2.5 text-sm" style="background:{{ paleta_marca.600 }}">
+        Confirmar inscrição
+    </button>
+</form>
+{% endblock %}

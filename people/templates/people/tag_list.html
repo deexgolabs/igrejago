@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Tags{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-slate-900">Tags</h1>
+    <a href="{% url 'people:list' %}" class="text-sm text-brand-700 hover:underline">← Pessoas</a>
+</div>
+
+<form method="post" class="bg-white border border-slate-200 rounded-xl p-4 mb-4 flex flex-wrap gap-3 items-end">
+    {% csrf_token %}
+    <div class="flex-1 min-w-[200px]">
+        <label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.name.label }}</label>
+        {{ form.name }}
+        {% if form.name.errors %}<p class="text-xs text-red-600 mt-1">{{ form.name.errors|striptags }}</p>{% endif %}
+    </div>
+    <div>
+        <label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.color.label }}</label>
+        {{ form.color }}
+    </div>
+    <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm rounded-lg px-4 py-2">+ Nova tag</button>
+</form>
+
+<div class="flex flex-wrap gap-2">
+    {% for tag in tags %}
+    <span class="inline-flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-full text-white" style="background:{{ tag.color }}">
+        {{ tag.name }}
+        <a href="{% url 'people:tag_delete' tag.pk %}" class="hover:opacity-70" title="Excluir">×</a>
+    </span>
+    {% empty %}
+    <p class="text-sm text-slate-400">Nenhuma tag cadastrada ainda.</p>
+    {% endfor %}
+</div>
+
+<style>
+input[type="text"] { width: 100%; border: 1px solid #d1d5db; border-radius: 0.5rem; padding: 0.4rem 0.65rem; font-size: 0.875rem; }
+</style>
+{% endblock %}

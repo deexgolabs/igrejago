@@ -1,0 +1,101 @@
+{% extends "public_base.html" %}
+{% block title %}{{ custom_form.title }}{% endblock %}
+{% block content %}
+<h1 class="text-lg font-bold text-slate-900 text-center mb-1">{{ custom_form.title }}</h1>
+{% if custom_form.description %}
+<p class="text-center text-slate-500 mb-6">{{ custom_form.description }}</p>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data" class="form-padrao bg-white border border-slate-200 rounded-xl p-6 space-y-4">
+    {% csrf_token %}
+    {# Honeypot anti-bot: invisível pra gente, mas bots que preenchem tudo indiscriminadamente costumam preencher. #}
+    <div style="position:absolute; left:-9999px; top:-9999px;" aria-hidden="true">
+        <label for="website_confirm">Deixe este campo em branco</label>
+        <input type="text" id="website_confirm" name="website_confirm" tabindex="-1" autocomplete="off">
+    </div>
+    {% for field in fields %}
+    <div>
+        <label>{{ field.label }}{% if field.required %} *{% endif %}</label>
+
+        {% if field.field_type == "TEXTAREA" %}
+        <textarea name="field_{{ field.pk }}" rows="3">{{ field.posted_value|default:"" }}</textarea>
+
+        {% elif field.field_type == "EMAIL" %}
+        <input type="email" name="field_{{ field.pk }}" value="{{ field.posted_value|default:"" }}">
+
+        {% elif field.field_type == "PHONE" %}
+        <input type="tel" name="field_{{ field.pk }}" value="{{ field.posted_value|default:"" }}" placeholder="(62) 99999-8888">
+
+        {% elif field.field_type == "CPF" %}
+        <input type="text" name="field_{{ field.pk }}" value="{{ field.posted_value|default:"" }}" placeholder="000.000.000-00">
+
+        {% elif field.field_type == "NUMBER" %}
+        <input type="number" name="field_{{ field.pk }}" value="{{ field.posted_value|default:"" }}">
+
+        {% elif field.field_type == "BIRTH_DATE" or field.field_type == "DATE" %}
+        <input type="date" name="field_{{ field.pk }}" value="{{ field.posted_value|default:"" }}">
+
+        {% elif field.field_type == "TIME" %}
+        <input type="time" name="field_{{ field.pk }}" value="{{ field.posted_value|default:"" }}">
+
+        {% elif field.field_type == "URL" %}
+        <input type="url" name="field_{{ field.pk }}" value="{{ field.posted_value|default:"" }}" placeholder="https://...">
+
+        {% elif field.field_type == "ZIP_CODE" %}
+        <input type="text" name="field_{{ field.pk }}" value="{{ field.posted_value|default:"" }}" placeholder="00000-000">
+
+        {% elif field.field_type == "CITY" or field.field_type == "ADDRESS" or field.field_type == "NAME" %}
+        <input type="text" name="field_{{ field.pk }}" value="{{ field.posted_value|default:"" }}">
+
+        {% elif field.field_type == "STATE" %}
+        <select name="field_{{ field.pk }}">
+            <option value="">Selecione...</option>
+            {% for value, label in field.choices_for_render %}
+            <option value="{{ value }}" {% if field.posted_value == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+
+        {% elif field.field_type == "FILE" %}
+        <input type="file" name="field_{{ field.pk }}">
+
+        {% elif field.field_type == "GENDER" or field.field_type == "MARITAL_STATUS" or field.field_type == "YES_NO" or field.field_type == "CHOICE" %}
+        <div class="space-y-1">
+            {% for value, label in field.choices_for_render %}
+            <label class="flex items-center gap-2 font-normal text-sm text-slate-700">
+                <input type="radio" name="field_{{ field.pk }}" value="{{ value }}" {% if field.posted_value == value %}checked{% endif %}>
+                {{ label }}
+            </label>
+            {% endfor %}
+        </div>
+
+        {% elif field.field_type == "MULTIPLE_CHOICE" %}
+        <div class="space-y-1">
+            {% for value, label in field.choices_for_render %}
+            <label class="flex items-center gap-2 font-normal text-sm text-slate-700">
+                <input type="checkbox" name="field_{{ field.pk }}" value="{{ value }}">
+                {{ label }}
+            </label>
+            {% endfor %}
+        </div>
+
+        {% else %}
+        <input type="text" name="field_{{ field.pk }}" value="{{ field.posted_value|default:"" }}">
+        {% endif %}
+
+        {% if field.error %}<p class="text-xs text-red-600 mt-1">{{ field.error }}</p>{% endif %}
+    </div>
+    {% endfor %}
+
+    <div>
+        <label class="flex items-center gap-2 font-normal text-sm text-slate-700">
+            <input type="checkbox" name="privacy_consent">
+            {{ privacy_consent_label }}
+        </label>
+        {% if privacy_consent_error %}<p class="text-xs text-red-600 mt-1">{{ privacy_consent_error }}</p>{% endif %}
+    </div>
+
+    <button type="submit" class="w-full text-white font-medium rounded-lg py-2.5 text-sm" style="background:{{ paleta_marca.600 }}">
+        Enviar
+    </button>
+</form>
+{% endblock %}

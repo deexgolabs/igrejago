@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Pagar doação{% endblock %}
+{% block content %}
+<div class="max-w-md mx-auto bg-white border border-slate-200 rounded-xl p-6 text-center">
+    <h2 class="text-lg font-bold text-slate-900 mb-1">Obrigado pela sua doação!</h2>
+    <p class="text-sm text-slate-500 mb-4">Valor: <strong>R$ {{ donation.amount }}</strong></p>
+
+    {% if donation.status == 'PAID' %}
+    <p class="text-sm text-emerald-700 bg-emerald-50 rounded-lg p-3 mb-4">Pagamento confirmado — obrigado!</p>
+    <a href="{% url 'finance:donation_receipt' donation.pk %}"
+       class="block text-center text-white font-medium rounded-lg py-2.5 text-sm mb-4" style="background:{{ paleta_marca.600 }}">
+        Baixar recibo
+    </a>
+    {% endif %}
+
+    {% if donation.status != 'PAID' and church_config.mercadopago_configured %}
+    <a href="{% url 'finance:donation_mercadopago_start' donation.pk %}"
+       class="block text-center text-white font-medium rounded-lg py-2.5 text-sm mb-4" style="background:{{ paleta_marca.600 }}">
+        Pagar com Mercado Pago (cartão, PIX, boleto)
+    </a>
+    <p class="text-xs text-slate-400 mb-4">— ou pague direto pelo PIX abaixo —</p>
+    {% endif %}
+
+    {% if donation.status != 'PAID' %}
+    {% if pix_qr_data_uri %}
+    <img src="{{ pix_qr_data_uri }}" alt="QR Code PIX" class="mx-auto w-56 h-56 mb-4">
+    <p class="text-xs text-slate-400 mb-1">PIX Copia e Cola</p>
+    <textarea readonly class="w-full text-xs border border-slate-300 rounded-lg p-2 mb-4 h-20" onclick="this.select()">{{ pix_payload }}</textarea>
+    <p class="text-sm text-amber-600 bg-amber-50 rounded-lg p-3">
+        Pagando pelo PIX acima, aguarde a confirmação da secretaria. Pagando pelo Mercado Pago,
+        a confirmação é automática.
+    </p>
+    {% elif not church_config.mercadopago_configured %}
+    <p class="text-sm text-amber-600 bg-amber-50 rounded-lg p-3">
+        A igreja ainda não configurou uma forma de pagamento online. Entre em contato com a
+        secretaria para combinar a doação.
+    </p>
+    {% endif %}
+    {% endif %}
+
+    <a href="{% url 'core:dashboard' %}" class="inline-block mt-4 text-sm text-brand-700 hover:underline">← Voltar ao meu espaço</a>
+</div>
+{% endblock %}
