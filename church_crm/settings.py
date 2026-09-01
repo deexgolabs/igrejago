@@ -22,6 +22,16 @@ DEBUG = os.getenv("DEBUG", "True") == "True"
 
 ALLOWED_HOSTS = [h.strip() for h in os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h.strip()]
 
+# Domínios que podem submeter formulário aqui SEM bater com o Host visto
+# pelo Django — necessário quando um domínio na frente (ex.: um Worker da
+# Cloudflare espelhando um domínio curto pras páginas públicas) repassa a
+# requisição sobrescrevendo o cabeçalho Host, mas o navegador do visitante
+# ainda manda o Origin do domínio curto original. Sem isso, toda submissão
+# de formulário público vinda de um domínio "espelho" desses seria barrada
+# como CSRF inválido (Origin ≠ Host). Formato: URLs completas com esquema,
+# separadas por vírgula (ex.: "https://igrejago.link").
+CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()]
+
 
 # Application definition
 
