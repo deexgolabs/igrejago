@@ -330,8 +330,13 @@ class WhatsAppWebhookView(View):
             return HttpResponse(status=400)
 
         data = payload.get("data", {})
-        message_id = data.get("key", {}).get("id", "")
-        raw_status = str(data.get("update", {}).get("status", ""))
+        # Confirmado contra um servidor Evolution real (v2.3.7): o evento
+        # `messages.update` manda `data.keyId`/`data.status` DIRETO, sem
+        # aninhar em `key`/`update` — só o evento `send.message` (que não
+        # nos interessa aqui) tem esse aninhamento. Aceita os dois formatos
+        # mesmo assim, caso uma versão futura da Evolution volte a aninhar.
+        message_id = data.get("keyId") or data.get("key", {}).get("id", "")
+        raw_status = str(data.get("status") or data.get("update", {}).get("status", ""))
         if not message_id:
             return HttpResponse(status=200)  # evento sem id útil pra nós — ignora sem erro
 

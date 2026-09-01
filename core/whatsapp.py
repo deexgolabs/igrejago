@@ -46,20 +46,36 @@ def enviar_whatsapp(phone, message, *, church_config):
         return False, str(exc)[:255], ""
 
 
-def criar_instancia(church_config, *, instance_name):
+def criar_instancia(church_config, *, instance_name, webhook_url=None, webhook_secret=None):
     """Cria uma nova instância (conexão de WhatsApp) no servidor Evolution
-    API, usando a chave GLOBAL (admin). Devolve o dict de resposta da API —
-    o formato exato varia por versão da Evolution API; o código abaixo
-    segue o shape documentado da v2, nunca testado contra um servidor real
-    (nenhuma instância Evolution existe neste ambiente de dev). Ajuste
-    `EVOLUTION_*` em `core/whatsapp.py` se seu servidor responder diferente."""
+    API, usando a chave GLOBAL (admin). Devolve o dict de resposta da API.
+    Formato confirmado ao vivo contra um servidor Evolution v2.3.7 real
+    (Contabo) — `hash` (chave da instância) vem como STRING direto, não
+    aninhado; `qrcode.base64` já vem com o prefixo `data:image/...`.
+
+    `webhook_url`/`webhook_secret`: quando os dois vêm preenchidos, já
+    embute a configuração do webhook de confirmação de entrega na própria
+    chamada de criação (`/instance/create` aceita um objeto `webhook`
+    dentro do corpo — testado, funciona, evita uma segunda chamada
+    separada a `/webhook/set/{instance}`). O cabeçalho `X-Webhook-Secret`
+    é o que `notifications.WhatsAppWebhookView` confere pra saber de qual
+    igreja é o evento — ver `core.models.Church.whatsapp_webhook_secret`."""
+    payload = {
+        "instanceName": instance_name,
+        "qrcode": True,
+        "integration": "WHATSAPP-BAILEYS",
+    }
+    if webhook_url and webhook_secret:
+        payload["webhook"] = {
+            "url": webhook_url,
+            "byEvents": False,
+            "base64": False,
+            "headers": {"X-Webhook-Secret": webhook_secret},
+            "events": ["MESSAGES_UPDATE"],
+        }
     response = requests.post(
         f"{church_config.whatsapp_api_url}/instance/create",
-        json={
-            "instanceName": instance_name,
-            "qrcode": True,
-            "integration": "WHATSAPP-BAILEYS",
-        },
+        json=payload,
         headers={"apikey": church_config.whatsapp_api_key},
         timeout=20,
     )

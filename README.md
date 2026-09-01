@@ -264,9 +264,13 @@ Decisões de design que valem explicar:
   pelo `external_id`. Sem assinatura própria da Evolution API pra
   webhooks, a autenticação é um segredo compartilhado
   (`Church.whatsapp_webhook_secret`, conferido no cabeçalho
-  `X-Webhook-Secret`) — sem segredo configurado, rejeita tudo. Mapeamento
-  de status (`DELIVERY_ACK`/`READ`/códigos numéricos do Baileys) é
-  best-effort, nunca confirmado contra um payload real.
+  `X-Webhook-Secret`) — sem segredo configurado, rejeita tudo. Confirmado
+  ao vivo contra um servidor Evolution v2.3.7 real: o evento
+  `messages.update` manda `data.keyId`/`data.status` DIRETO (não aninhado
+  em `key`/`update`, como uma leitura apressada da doc sugeria — corrigido
+  depois de capturar o payload real). `criar_instancia()` já embute a
+  configuração do webhook (URL + segredo, gerado sozinho na primeira vez)
+  na própria chamada de criação da instância — não é mais um passo manual.
 - **Duas telas fazem a MESMA coisa pra conectar o WhatsApp — a do
   `notifications.WhatsAppConnectionView` (estilizada, no fluxo normal do
   app, pensada pro pastor usar) e a do Django admin
@@ -277,11 +281,14 @@ Decisões de design que valem explicar:
   GLOBAL do servidor Evolution (`whatsapp_api_key`); enviar
   mensagem/checar status usa a chave da PRÓPRIA instância
   (`whatsapp_instance_token`, preenchida automaticamente ao criar — ou
-  cai pra chave global se vazia). Formato exato da resposta da API é
-  best-effort (nunca testado contra um servidor Evolution real neste
-  ambiente) — só os caminhos de erro foram verificados ao vivo
-  (URL/instância inexistente → falha de DNS capturada e mostrada como
-  aviso, sem quebrar a página, nas duas telas).
+  cai pra chave global se vazia). Formato da resposta da API confirmado
+  ao vivo contra um servidor Evolution v2.3.7 real (Contabo): criação,
+  QR code (`qrcode.base64`, já com o prefixo `data:image/...`), status
+  (`instance.state`) e o `hash` da instância (string direto, não
+  aninhado) bateram com o parsing já existente sem precisar de ajuste —
+  só o webhook precisou de correção (ver acima). Os caminhos de erro
+  também seguem verificados (URL/instância inexistente → falha de DNS
+  capturada e mostrada como aviso, sem quebrar a página, nas duas telas).
 - **Tela de Configurações in-app (`/configuracoes/`)**: um `ModelForm`
   comum sobre `Church.get_solo()` — antes só dava pra editar pelo
   Django admin. Existe pra quem administra o sistema no dia a dia sem
@@ -755,10 +762,15 @@ plataforma, separada da conta de cada igreja), webhook atualiza
 funcionando em paralelo. Gaps conhecidos, só relevantes se o projeto
 crescer bastante mais:
 `processar_fila_whatsapp`/`enviar_lembretes`/`backup_banco`/
-`verificar_conexao_whatsapp` precisam ser agendados manualmente (cron/Task
-Scheduler — não vêm agendados sozinhos);
+`verificar_conexao_whatsapp` precisam de agendamento de verdade
+(cron/Scheduled Tasks) num plano pago de hospedagem — em hospedagem sem
+isso (ex.: PythonAnywhere free tier), a área **Gestão da plataforma**
+(`/gestao/comandos/`, dono da plataforma) deixa rodar esses mesmos
+comandos manualmente pela tela, sem precisar de shell;
 formato de resposta da Evolution API (criação de instância, QR code,
-status, webhook) é best-effort, nunca testado contra um servidor real; o
+status, webhook) confirmado ao vivo contra um servidor v2.3.7 real
+(Contabo) — só o parsing do webhook precisou de ajuste, o resto bateu de
+primeira; o
 service worker não implementa cache offline de verdade, só torna o site
 instalável (só notificação push); `AuditLog` não é visível fora do Django
 admin (sem tela própria); rate limit usa cache por processo

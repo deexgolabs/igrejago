@@ -201,6 +201,45 @@ class TestWhatsAppConnectionAdmin:
         response = admin_client_.get(f"/admin/core/church/{church_config.pk}/whatsapp/desconectar/")
         assert response.status_code == 302
 
+    def test_create_instance_generates_webhook_secret_and_configures_it(self, admin_client_, church_config, settings):
+        """`criar_instancia()` agora embute a configuração do webhook de
+        confirmação de entrega direto na chamada de criação — não é mais
+        um passo manual (ver README/DEPLOY.md). Confirma que a view gera
+        um segredo (se a igreja ainda não tiver um) e passa a URL/segredo
+        certos pra `core.whatsapp.criar_instancia()`."""
+        from unittest.mock import patch
+
+        settings.EVOLUTION_API_URL = "https://fake.example.com"
+        settings.EVOLUTION_API_KEY = "global-key"
+        church_config.whatsapp_webhook_secret = ""
+        church_config.save()
+
+        with patch("core.admin.whatsapp.criar_instancia", return_value={"hash": "novo-token"}) as mock_criar:
+            response = admin_client_.get(f"/admin/core/church/{church_config.pk}/whatsapp/criar-instancia/")
+        assert response.status_code == 302
+
+        church_config.refresh_from_db()
+        assert church_config.whatsapp_webhook_secret  # foi gerado, não ficou em branco
+
+        _, kwargs = mock_criar.call_args
+        assert kwargs["webhook_secret"] == church_config.whatsapp_webhook_secret
+        assert kwargs["webhook_url"].endswith("/mensagens/webhook/evolution/")
+
+    def test_create_instance_reuses_existing_webhook_secret(self, admin_client_, church_config, settings):
+        from unittest.mock import patch
+
+        settings.EVOLUTION_API_URL = "https://fake.example.com"
+        settings.EVOLUTION_API_KEY = "global-key"
+        church_config.whatsapp_webhook_secret = "ja-existia"
+        church_config.save()
+
+        with patch("core.admin.whatsapp.criar_instancia", return_value={"hash": "novo-token"}) as mock_criar:
+            admin_client_.get(f"/admin/core/church/{church_config.pk}/whatsapp/criar-instancia/")
+
+        church_config.refresh_from_db()
+        assert church_config.whatsapp_webhook_secret == "ja-existia"
+        assert mock_criar.call_args.kwargs["webhook_secret"] == "ja-existia"
+
 
 @pytest.mark.django_db
 class TestSettingsView:

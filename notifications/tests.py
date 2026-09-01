@@ -392,6 +392,32 @@ class TestWhatsAppWebhook:
         assert response.status_code == 200
         assert WhatsAppMessage.objects.get().delivery_status == WhatsAppMessage.DeliveryStatus.UNKNOWN
 
+    def test_updates_delivery_status_on_real_flat_payload_shape(self, client, church_config):
+        """Formato de verdade, capturado ao vivo contra um servidor
+        Evolution v2.3.7 real: `data.keyId`/`data.status` direto, sem
+        aninhar em `key`/`update` (diferente do que a doc pública sugeria
+        e do formato usado nos testes acima, mantidos por compatibilidade
+        com uma versão que aninhe)."""
+        church_config.whatsapp_webhook_secret = "correct-secret"
+        church_config.save()
+        msg = WhatsAppMessage.objects.create(
+            church=church_config, phone="5562911110001", message="Oi", status="SENT", external_id="MSG-ID-REAL",
+        )
+
+        payload = {
+            "event": "messages.update",
+            "instance": "igreja-teste",
+            "data": {"keyId": "MSG-ID-REAL", "remoteJid": "5562911110001@s.whatsapp.net", "status": "DELIVERY_ACK"},
+        }
+        response = client.post(
+            "/mensagens/webhook/evolution/", data=json.dumps(payload), content_type="application/json",
+            HTTP_X_WEBHOOK_SECRET="correct-secret",
+        )
+        assert response.status_code == 200
+        msg.refresh_from_db()
+        assert msg.delivery_status == WhatsAppMessage.DeliveryStatus.DELIVERED
+        assert msg.delivered_at is not None
+
 
 @pytest.mark.django_db
 class TestPushSubscribe:

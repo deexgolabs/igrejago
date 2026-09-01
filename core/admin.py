@@ -1,3 +1,5 @@
+import secrets
+
 from django.contrib import admin, messages
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect
@@ -105,17 +107,30 @@ class ChurchAdmin(admin.ModelAdmin):
         if not (church.whatsapp_api_url and church.whatsapp_api_key):
             messages.error(request, "Configure EVOLUTION_API_URL/EVOLUTION_API_KEY no .env da plataforma antes de criar.")
             return self._back_to_change_form(pk)
+
+        # Gera o segredo do webhook agora, se a igreja ainda não tiver um —
+        # assim toda igreja nova já sai com confirmação de entrega
+        # funcionando, sem precisar de um passo manual depois (era o caso
+        # antes: o campo existia, mas nada configurava o webhook de
+        # verdade na Evolution API).
+        if not church.whatsapp_webhook_secret:
+            church.whatsapp_webhook_secret = secrets.token_hex(16)
+            church.save(update_fields=["whatsapp_webhook_secret"])
+        webhook_url = request.build_absolute_uri(reverse("notifications:webhook"))
+
         try:
-            data = whatsapp.criar_instancia(church, instance_name=church.whatsapp_instance)
+            data = whatsapp.criar_instancia(
+                church, instance_name=church.whatsapp_instance,
+                webhook_url=webhook_url, webhook_secret=church.whatsapp_webhook_secret,
+            )
         except Exception as exc:
             messages.error(request, f"Falha ao criar instância: {exc}")
             return self._back_to_change_form(pk)
 
-        # Formato de resposta best-effort (nunca testado contra um servidor
-        # Evolution real) — tenta achar o token da instância em alguns
-        # caminhos comuns e, se não achar, só avisa: a criação em si já
-        # funcionou, o token pode ser copiado manualmente do painel do
-        # Evolution se este parsing não bater com a versão do seu servidor.
+        # Formato de resposta confirmado ao vivo contra um servidor
+        # Evolution v2.3.7 real — `hash` vem como string direto (não
+        # aninhado); o fallback pros outros formatos fica só por segurança
+        # contra versões diferentes do servidor.
         token = (
             data.get("hash", {}).get("apikey")
             if isinstance(data.get("hash"), dict)

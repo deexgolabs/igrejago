@@ -193,31 +193,30 @@ recriada do zero.
 
 ### 5.2. Confirmação de entrega (webhook)
 
-Pra `WhatsAppMessage.delivery_status` (entregue/lida) funcionar, configure
-no painel da instância Evolution API **de CADA igreja** um webhook
-apontando para a MESMA URL (o endpoint é único, compartilhado — quem
-diferencia a igreja é o segredo, não a URL):
+Isso já é automático: ao clicar em "Criar/recriar instância" (Django
+admin), `core.whatsapp.criar_instancia()` gera sozinho um
+`Church.whatsapp_webhook_secret` (se a igreja ainda não tiver um) e
+já embute a configuração do webhook — URL própria
+(`https://seudominio.com/mensagens/webhook/evolution/`, calculada de
+`request.build_absolute_uri`) + o evento `messages.update` + o cabeçalho
+`X-Webhook-Secret` — na própria chamada de criação da instância. Não
+precisa mexer no painel da Evolution API manualmente. O segredo é único
+por igreja porque a URL do webhook é a mesma pra todas — é ele que diz
+de qual igreja é o evento; a Evolution API não assina os webhooks por
+conta própria, então sem um segredo que bata com alguma igreja, toda
+chamada é rejeitada.
 
-```
-https://seudominio.com/mensagens/webhook/evolution/
-```
-
-com o evento `messages.update` habilitado, e um cabeçalho customizado
-`X-Webhook-Secret` com o mesmo valor de `Church.whatsapp_webhook_secret`
-**daquela igreja** (preenchido no Django admin, junto com o resto da
-conexão — infraestrutura do dono, não aparece em `/configuracoes/`). É
-esse segredo — único por igreja — que diz ao webhook de qual igreja é o
-evento, já que a URL é a mesma pra todas. A Evolution API não assina os
-webhooks por conta própria — sem um segredo configurado que bata com
-alguma igreja, toda chamada é rejeitada.
-
-**Nota de honestidade**: o formato exato da resposta da API (criação de
-instância, QR code, status, e o payload do webhook) foi implementado
-seguindo a documentação pública da Evolution API v2, mas nunca testado
-contra um servidor real neste ambiente de desenvolvimento — só os
-caminhos de erro (sem configuração, URL inválida, segredo errado) foram
-verificados ao vivo. Se algo não bater com a versão do seu servidor, a
-tela de conexão mostra a resposta crua da API na mensagem de aviso pra
+**Nota de honestidade**: o formato da resposta da API (criação de
+instância, QR code, status, e o payload do webhook) foi **confirmado ao
+vivo** contra um servidor Evolution API v2.3.7 real (deploy próprio via
+Docker Compose numa Contabo VPS, ver histórico do projeto) — criação,
+QR code e status bateram com o parsing já existente sem precisar de
+ajuste nenhum; só o payload do webhook (`messages.update`) veio num
+formato diferente do documentado (`data.keyId`/`data.status` direto, não
+aninhado em `key`/`update`) e foi corrigido em
+`notifications/views.py::WhatsAppWebhookView` depois de capturar um
+evento real. Se sua versão do servidor responder diferente ainda assim,
+a tela de conexão mostra a resposta crua da API na mensagem de aviso pra
 você ajustar `core/whatsapp.py`/`notifications/views.py::WhatsAppWebhookView`
 se precisar.
 
