@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block title %}Manual{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold text-slate-900 mb-1">Manual do IgrejaGo</h1>
+<p class="text-sm text-slate-500 mb-6 max-w-2xl">
+    Guia de configuração e uso do sistema — do primeiro cadastro até a administração da plataforma.
+</p>
+
+<div class="bg-white border border-slate-200 rounded-xl p-5 mb-8">
+    <h2 class="text-xs font-semibold text-slate-500 uppercase mb-3">Índice</h2>
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1.5 text-sm">
+        <a href="#visao-geral" class="text-brand-700 hover:underline">Visão geral</a>
+        <a href="#primeiros-passos" class="text-brand-700 hover:underline">Primeiros passos</a>
+        <a href="#seguranca" class="text-brand-700 hover:underline">Segurança (2FA)</a>
+        <a href="#config-igreja" class="text-brand-700 hover:underline">Configurações</a>
+        <a href="#modulos" class="text-brand-700 hover:underline">Módulos</a>
+        <a href="#portal-membro" class="text-brand-700 hover:underline">Portal do membro</a>
+        <a href="#lgpd" class="text-brand-700 hover:underline">LGPD</a>
+        <a href="#planos" class="text-brand-700 hover:underline">Planos</a>
+        {% if user.is_platform_owner %}
+        <a href="#gestao" class="text-brand-700 hover:underline">Gestão da plataforma</a>
+        <a href="#dominios" class="text-brand-700 hover:underline">Domínios do sistema</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="space-y-10 max-w-3xl">
+
+    <section id="visao-geral">
+        <h2 class="text-lg font-bold text-slate-900 mb-3 pb-2 border-b border-slate-200">Visão geral</h2>
+        <p class="text-sm text-slate-600 mb-4">
+            O IgrejaGo é multi-igreja: cada igreja tem seus próprios dados, completamente isolados das demais.
+            Existem dois tipos de conta:
+        </p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div class="border border-slate-200 rounded-xl p-4">
+                <h3 class="text-sm font-semibold text-slate-800 mb-1">Conta de igreja</h3>
+                <p class="text-sm text-slate-500">Pastor, secretaria, líder ou membro — vinculada a uma igreja específica. É a conta que a maioria das pessoas usa.</p>
+            </div>
+            <div class="border border-slate-200 rounded-xl p-4">
+                <h3 class="text-sm font-semibold text-slate-800 mb-1">Dono da plataforma</h3>
+                <p class="text-sm text-slate-500">Sem igreja vinculada — enxerga e administra todas as igrejas, pela Gestão da plataforma.</p>
+            </div>
+        </div>
+    </section>
+
+    <section id="primeiros-passos">
+        <h2 class="text-lg font-bold text-slate-900 mb-3 pb-2 border-b border-slate-200">Primeiros passos</h2>
+        <ol class="space-y-4 text-sm">
+            <li class="flex gap-3">
+                <span class="flex-shrink-0 w-6 h-6 rounded-full bg-brand-600 text-white text-xs font-bold flex items-center justify-center">1</span>
+                <div><strong class="block text-slate-800">Cadastro público</strong><span class="text-slate-500">Na tela de login, "Sua igreja ainda não tem cadastro? Comece aqui" abre o formulário — nome da igreja, nome do pastor, usuário e senha.</span></div>
+            </li>
+            <li class="flex gap-3">
+                <span class="flex-shrink-0 w-6 h-6 rounded-full bg-brand-600 text-white text-xs font-bold flex items-center justify-center">2</span>
+                <div><strong class="block text-slate-800">Acesso imediato em trial</strong><span class="text-slate-500">A igreja já entra ativa, em trial de 30 dias com acesso completo — sem limite de pessoas, WhatsApp liberado.</span></div>
+            </li>
+            <li class="flex gap-3">
+                <span class="flex-shrink-0 w-6 h-6 rounded-full bg-brand-600 text-white text-xs font-bold flex items-center justify-center">3</span>
+                <div><strong class="block text-slate-800">Confirmação de e-mail</strong><span class="text-slate-500">Enviada em paralelo, não bloqueia o uso — só libera o envio de WhatsApp. Reenvio em Configurações → Conectar WhatsApp.</span></div>
+            </li>
+            <li class="flex gap-3">
+                <span class="flex-shrink-0 w-6 h-6 rounded-full bg-brand-600 text-white text-xs font-bold flex items-center justify-center">4</span>
+                <div><strong class="block text-slate-800">Fim do trial</strong><span class="text-slate-500">Sem assinar em 30 dias, a conta é suspensa automaticamente — assinando a qualquer momento, o acesso volta.</span></div>
+            </li>
+        </ol>
+    </section>
+
+    <section id="seguranca">
+        <h2 class="text-lg font-bold text-slate-900 mb-3 pb-2 border-b border-slate-200">Segurança da conta — autenticação em duas etapas</h2>
+        <p class="text-sm text-slate-600 mb-3">
+            Toda conta com acesso ao Django admin é <strong>obrigada</strong> a configurar 2FA antes de entrar.
+            Contas comuns podem ativar por escolha própria em <strong>Segurança</strong>, no menu superior.
+        </p>
+        <p class="text-sm text-slate-600 mb-4">
+            Recomendamos o <a href="https://www.ibm.com/products/verify" target="_blank" rel="noopener" class="text-brand-700 underline">IBM Verify</a>
+            como aplicativo autenticador — gratuito, Android e iOS. O sistema usa o padrão TOTP (o mesmo do Google
+            Authenticator, Authy, Microsoft Authenticator), então qualquer um desses funciona igual — a recomendação é só por confiabilidade.
+        </p>
+        <ol class="space-y-3 text-sm text-slate-600 list-decimal list-inside">
+            <li>Instale o IBM Verify na loja de aplicativos do seu celular.</li>
+            <li>No IgrejaGo, vá em <strong>Segurança</strong> → <strong>Configurar autenticação em duas etapas</strong>.</li>
+            <li>No IBM Verify, adicione uma conta escaneando o QR code mostrado na tela.</li>
+            <li>Digite o código de 6 dígitos que o app mostrar, pra confirmar.</li>
+        </ol>
+        <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mt-4 text-sm text-amber-800">
+            <strong class="block mb-1">Perdeu acesso ao autenticador?</strong>
+            Não existe "esqueci o 2FA" self-service. Peça ao dono da plataforma pra resetar sua conta pelo Django admin.
+        </div>
+    </section>
+
+    <section id="config-igreja">
+        <h2 class="text-lg font-bold text-slate-900 mb-3 pb-2 border-b border-slate-200">Configurações da igreja</h2>
+        <p class="text-sm text-slate-600 mb-4">Tudo em <strong>Configurações</strong> (menu "Mais"). Só quem gerencia pessoas vê essa tela.</p>
+
+        <h3 class="text-sm font-semibold text-slate-800 mb-2">Conectar o WhatsApp</h3>
+        <p class="text-sm text-slate-600 mb-3">Fica separado do resto, em Configurações → Conectar WhatsApp (é uma tela de QR code).</p>
+        <ol class="space-y-2 text-sm text-slate-600 list-decimal list-inside mb-4">
+            <li>Escaneie o QR code com o celular que vai enviar as mensagens.</li>
+            <li>Pronto — a fila de mensagens passa a ser processada automaticamente.</li>
+            <li>Trocou de aparelho? Desconecte e conecte de novo, sem ajuda técnica.</li>
+        </ol>
+
+        <h3 class="text-sm font-semibold text-slate-800 mb-2">PIX e Mercado Pago</h3>
+        <p class="text-sm text-slate-600">Credenciais da própria igreja (diferente da assinatura da plataforma) — recebem pagamento de evento e doação. O token do Mercado Pago é opcional, libera pagamento com cartão além do PIX.</p>
+    </section>
+
+    <section id="modulos">
+        <h2 class="text-lg font-bold text-slate-900 mb-3 pb-2 border-b border-slate-200">Referência dos módulos</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div class="border border-slate-200 rounded-xl p-4"><h3 class="text-sm font-semibold text-slate-800">Pessoas</h3><p class="text-xs text-slate-400 mb-1">/pessoas/</p><p class="text-sm text-slate-500">Cadastro de membros e visitantes, funil de acompanhamento, acesso ao Portal do membro.</p></div>
+            <div class="border border-slate-200 rounded-xl p-4"><h3 class="text-sm font-semibold text-slate-800">Eventos</h3><p class="text-xs text-slate-400 mb-1">/eventos/</p><p class="text-sm text-slate-500">Eventos com inscrição pública, controle de vagas, pagamento via PIX ou cartão.</p></div>
+            <div class="border border-slate-200 rounded-xl p-4"><h3 class="text-sm font-semibold text-slate-800">Financeiro</h3><p class="text-xs text-slate-400 mb-1">/financeiro/</p><p class="text-sm text-slate-500">Entradas e saídas, orçamento por categoria, doações e promessas recorrentes.</p></div>
+            <div class="border border-slate-200 rounded-xl p-4"><h3 class="text-sm font-semibold text-slate-800">Células</h3><p class="text-xs text-slate-400 mb-1">/celulas/</p><p class="text-sm text-slate-500">Grupos e reuniões — cada membro vê a própria célula no Portal.</p></div>
+            <div class="border border-slate-200 rounded-xl p-4"><h3 class="text-sm font-semibold text-slate-800">Mensagens</h3><p class="text-xs text-slate-400 mb-1">/mensagens/</p><p class="text-sm text-slate-500">Fila de WhatsApp, modelos, campanhas e histórico de entrega.</p></div>
+            <div class="border border-slate-200 rounded-xl p-4"><h3 class="text-sm font-semibold text-slate-800">Formulários</h3><p class="text-xs text-slate-400 mb-1">/formularios/</p><p class="text-sm text-slate-500">Formulários públicos personalizados, sem código.</p></div>
+            <div class="border border-slate-200 rounded-xl p-4"><h3 class="text-sm font-semibold text-slate-800">Link na Bio</h3><p class="text-xs text-slate-400 mb-1">/links/</p><p class="text-sm text-slate-500">Página pública com os links da igreja, pro Instagram/redes sociais.</p></div>
+        </div>
+    </section>
+
+    <section id="portal-membro">
+        <h2 class="text-lg font-bold text-slate-900 mb-3 pb-2 border-b border-slate-200">Portal do membro</h2>
+        <p class="text-sm text-slate-600">
+            É o que um membro comum vê ao entrar: os próprios dados, eventos inscritos e célula — nada de outras
+            pessoas. Inclui os botões de baixar meus dados e solicitar exclusão (ver <a href="#lgpd" class="text-brand-700 underline">LGPD</a>).
+        </p>
+    </section>
+
+    <section id="lgpd">
+        <h2 class="text-lg font-bold text-slate-900 mb-3 pb-2 border-b border-slate-200">LGPD e privacidade</h2>
+        <p class="text-sm text-slate-600 mb-4">Consentimento é exigido em todo formulário público — a pessoa marca a caixinha antes de enviar.</p>
+        <ul class="space-y-2 text-sm text-slate-600 list-disc list-inside mb-4">
+            <li><strong>Baixar meus dados</strong> — gera um arquivo com tudo que o sistema guarda sobre a pessoa.</li>
+            <li><strong>Solicitar exclusão</strong> — cria um pedido na fila da secretaria; só é apagado depois de confirmação humana.</li>
+        </ul>
+        {% if user.can_manage_people %}
+        <p class="text-sm text-slate-600">Fila de exclusão pra quem gerencia pessoas: Configurações → Solicitações de exclusão. Confirmar apaga o cadastro de verdade — não tem como desfazer.</p>
+        {% endif %}
+    </section>
+
+    <section id="planos">
+        <h2 class="text-lg font-bold text-slate-900 mb-3 pb-2 border-b border-slate-200">Planos e assinatura</h2>
+        <div class="bg-white border border-slate-200 rounded-xl overflow-x-auto mb-4">
+            <table class="w-full text-sm">
+                <thead class="bg-slate-50 text-left text-xs text-slate-500 uppercase">
+                    <tr><th class="px-4 py-2">Plano</th><th class="px-4 py-2">Preço</th><th class="px-4 py-2">Pessoas</th><th class="px-4 py-2">WhatsApp</th></tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    <tr><td class="px-4 py-2">Trial</td><td class="px-4 py-2">Grátis, 30 dias</td><td class="px-4 py-2">Sem limite</td><td class="px-4 py-2">Liberado</td></tr>
+                    <tr><td class="px-4 py-2">Básico</td><td class="px-4 py-2">R$ 49/mês</td><td class="px-4 py-2">Até 100</td><td class="px-4 py-2">Não incluso</td></tr>
+                    <tr><td class="px-4 py-2">Pro</td><td class="px-4 py-2">R$ 99/mês</td><td class="px-4 py-2">Sem limite</td><td class="px-4 py-2">Liberado</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="text-sm text-slate-600">Assinar em <strong>Assinatura</strong>, no menu — pagamento recorrente via Mercado Pago, ativado automaticamente na confirmação.</p>
+    </section>
+
+    {% if user.is_platform_owner %}
+    <section id="gestao">
+        <h2 class="text-lg font-bold text-slate-900 mb-3 pb-2 border-b border-slate-200">Gestão da plataforma</h2>
+        <p class="text-sm text-slate-600 mb-4">Exclusivo de quem não tem igreja vinculada. Ao entrar, você cai direto aqui em vez do dashboard normal.</p>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+            <div class="border border-slate-200 rounded-xl p-4"><h3 class="text-sm font-semibold text-slate-800 mb-1">Painel</h3><p class="text-sm text-slate-500">Igrejas por status, MRR estimado, trials vencendo, status do WhatsApp.</p></div>
+            <div class="border border-slate-200 rounded-xl p-4"><h3 class="text-sm font-semibold text-slate-800 mb-1">Igrejas</h3><p class="text-sm text-slate-500">Lista com filtro por status/plano/busca. Ajuste manual de status/plano/trial por igreja.</p></div>
+            <div class="border border-slate-200 rounded-xl p-4"><h3 class="text-sm font-semibold text-slate-800 mb-1">Comandos</h3><p class="text-sm text-slate-500">Roda manualmente as tarefas de manutenção quando não há agendamento automático na hospedagem.</p></div>
+        </div>
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm text-slate-600">
+            <strong class="block mb-1">Campos técnicos (WhatsApp/PIX/Mercado Pago de cada igreja)</strong>
+            Continuam só no <a href="/admin/core/church/" class="text-brand-700 underline">Django admin</a> — a Gestão da plataforma linka pra lá quando precisa desse nível de detalhe.
+        </div>
+    </section>
+
+    <section id="dominios">
+        <h2 class="text-lg font-bold text-slate-900 mb-3 pb-2 border-b border-slate-200">Domínios do sistema</h2>
+        <div class="space-y-3">
+            <div class="flex gap-3 border border-slate-200 rounded-xl p-4">
+                <span class="w-2.5 h-2.5 rounded-full bg-brand-600 mt-1.5 flex-shrink-0"></span>
+                <div>
+                    <p class="font-mono text-sm text-brand-700 mb-1">churchcrm.redecorp.co</p>
+                    <p class="text-sm text-slate-500">O sistema completo — login, dashboard, todos os módulos, admin, gestão da plataforma.</p>
+                </div>
+            </div>
+            <div class="flex gap-3 border border-slate-200 rounded-xl p-4">
+                <span class="w-2.5 h-2.5 rounded-full bg-amber-500 mt-1.5 flex-shrink-0"></span>
+                <div>
+                    <p class="font-mono text-sm text-brand-700 mb-1">igrejago.link</p>
+                    <p class="text-sm text-slate-500">Espelho curto, só das páginas públicas de cada igreja — link na bio, formulários e eventos. Não dá acesso a login nem a área administrativa nenhuma.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+
+</div>
+{% endblock %}

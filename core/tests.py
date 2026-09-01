@@ -309,6 +309,38 @@ class TestWhatsAppConnectionAdmin:
 
 
 @pytest.mark.django_db
+class TestManualView:
+    """Manual de configuração dentro do próprio app (pedido do usuário —
+    antes só existia como artifact fora do sistema). Visível pra
+    qualquer conta logada; as seções de Gestão da plataforma/domínios
+    só aparecem pro dono da plataforma."""
+
+    def test_requires_login(self, client):
+        response = client.get("/manual/")
+        assert response.status_code == 302
+
+    def test_pastor_can_view(self, pastor_client):
+        response = pastor_client.get("/manual/")
+        assert response.status_code == 200
+
+    def test_member_can_view(self, member_client):
+        response = member_client.get("/manual/")
+        assert response.status_code == 200
+
+    def test_platform_owner_sees_gestao_section(self, platform_owner_client):
+        response = platform_owner_client.get("/manual/")
+        assert response.status_code == 200
+        assert "Gestão da plataforma".encode() in response.content
+
+    def test_church_user_does_not_see_gestao_section(self, pastor_client):
+        # "Gestão da plataforma" sozinho aparece na visão geral (explica os
+        # dois tipos de conta pra todo mundo) — o que precisa ficar restrito
+        # é a seção com o passo a passo em si, não a menção ao nome.
+        response = pastor_client.get("/manual/")
+        assert "id=\"gestao\"".encode() not in response.content
+
+
+@pytest.mark.django_db
 class TestSettingsView:
     def test_pastor_can_view_settings(self, pastor_client, church_config):
         response = pastor_client.get("/configuracoes/")

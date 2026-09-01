@@ -72,6 +72,7 @@
             </div>
             {% endif %}
             <span class="text-slate-400">|</span>
+            <a href="{% url 'core:manual' %}" class="hover:text-brand-700">Manual</a>
             <a href="{% url 'accounts:totp_status' %}" class="hover:text-brand-700" title="Segurança da conta">Segurança</a>
             <span class="text-slate-600">{{ user }} <span class="text-xs text-slate-400">({% if user.is_platform_owner %}Dono da plataforma{% else %}{{ user.get_role_display }}{% endif %})</span></span>
             <form method="post" action="{% url 'accounts:logout' %}">
@@ -104,6 +105,7 @@
         <a href="{% url 'custom_forms:list' %}" class="block hover:text-brand-700">Formulários</a>
         <a href="{% url 'core:settings' %}" class="block hover:text-brand-700">Configurações</a>
         {% endif %}
+        <a href="{% url 'core:manual' %}" class="block hover:text-brand-700">Manual</a>
         <a href="{% url 'accounts:totp_status' %}" class="block hover:text-brand-700">Segurança</a>
         <div class="pt-2 border-t border-slate-100 flex items-center justify-between">
             <span class="text-slate-600">{{ user }} <span class="text-xs text-slate-400">({% if user.is_platform_owner %}Dono da plataforma{% else %}{{ user.get_role_display }}{% endif %})</span></span>

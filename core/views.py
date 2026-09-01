@@ -371,6 +371,15 @@ class PrivacyPolicyView(TemplateView):
     template_name = "core/privacy_policy.html"
 
 
+class ManualView(LoginRequiredMixin, TemplateView):
+    """Manual de configuração e uso do sistema, dentro do próprio app —
+    não é uma página solta. Seções de "Gestão da plataforma"/domínios só
+    aparecem pra quem é dono da plataforma (`user.is_platform_owner`);
+    o resto é igual pra qualquer conta logada, independente de cargo."""
+
+    template_name = "core/manual.html"
+
+
 class ContaSuspensaView(TemplateView):
     """Tela mostrada quando `Church.esta_bloqueada` (trial vencido sem
     assinar, ou assinatura cancelada/pagamento falhou — ver
