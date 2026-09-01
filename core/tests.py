@@ -54,6 +54,45 @@ class TestWhatsAppConsoleFallback:
 
 
 @pytest.mark.django_db
+class TestWhatsAppWebhookPayloadShape:
+    """`enabled: true` é exigido pela Evolution API — confirmado ao vivo
+    (400 Bad Request sem ele em `/webhook/set/`, aceito sem em
+    `/instance/create`, mas incluído nos dois por segurança/consistência).
+    Sem esse teste, uma futura edição podia remover o campo de novo e só
+    quebrar contra um servidor real, não na suíte."""
+
+    def test_criar_instancia_embeds_enabled_true_in_webhook(self, church_config, settings):
+        from unittest.mock import patch, Mock
+        from core.whatsapp import criar_instancia
+
+        settings.EVOLUTION_API_URL = "https://fake.example.com"
+        settings.EVOLUTION_API_KEY = "global-key"
+        with patch("core.whatsapp.requests.post") as mock_post:
+            mock_post.return_value = Mock(json=lambda: {"hash": "x"}, raise_for_status=lambda: None)
+            criar_instancia(
+                church_config, instance_name="igreja-x",
+                webhook_url="https://example.com/webhook/", webhook_secret="segredo",
+            )
+        sent_json = mock_post.call_args.kwargs["json"]
+        assert sent_json["webhook"]["enabled"] is True
+
+    def test_configurar_webhook_sends_enabled_true(self, church_config, settings):
+        from unittest.mock import patch, Mock
+        from core.whatsapp import configurar_webhook
+
+        settings.EVOLUTION_API_URL = "https://fake.example.com"
+        settings.EVOLUTION_API_KEY = "global-key"
+        with patch("core.whatsapp.requests.post") as mock_post:
+            mock_post.return_value = Mock(json=lambda: {}, raise_for_status=lambda: None)
+            configurar_webhook(
+                church_config, instance_name="igreja-x",
+                webhook_url="https://example.com/webhook/", webhook_secret="segredo",
+            )
+        sent_json = mock_post.call_args.kwargs["json"]
+        assert sent_json["webhook"]["enabled"] is True
+
+
+@pytest.mark.django_db
 class TestGeneralReportPDF:
     def test_generates_valid_pdf(self, church_config):
         from core.reports import generate_general_report_pdf

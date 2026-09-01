@@ -67,6 +67,7 @@ def criar_instancia(church_config, *, instance_name, webhook_url=None, webhook_s
     }
     if webhook_url and webhook_secret:
         payload["webhook"] = {
+            "enabled": True,
             "url": webhook_url,
             "byEvents": False,
             "base64": False,
@@ -91,11 +92,14 @@ def configurar_webhook(church_config, *, instance_name, webhook_url, webhook_sec
     inofensivo pra quem só queria reconfigurar o webhook, sem afetar a
     conexão já feita). Mesmo formato de `webhook` embutido em
     `criar_instancia()`; endpoint e formato confirmados ao vivo contra um
-    servidor Evolution v2.3.7 real."""
+    servidor Evolution v2.3.7 real — diferente do embutido em
+    `/instance/create`, esse endpoint EXIGE o campo `enabled` explícito
+    (400 Bad Request sem ele — confirmado ao vivo)."""
     response = requests.post(
         f"{church_config.whatsapp_api_url}/webhook/set/{instance_name}",
         json={
             "webhook": {
+                "enabled": True,
                 "url": webhook_url,
                 "byEvents": False,
                 "base64": False,
