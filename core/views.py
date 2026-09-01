@@ -2,6 +2,7 @@ import json
 import logging
 import re
 from datetime import date, datetime, time
+from io import StringIO
 
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
@@ -9,7 +10,8 @@ from django.contrib import messages
 from django.contrib.auth import login as auth_login
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.mail import send_mail
-from django.db.models import Count
+from django.core.management import call_command
+from django.db.models import Count, Q
 from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -18,9 +20,9 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import ListView, TemplateView, View
 
-from accounts.mixins import CanManagePeopleMixin
+from accounts.mixins import CanManagePeopleMixin, IsPlatformOwnerMixin
 from core.billing import PLANOS
-from core.forms import ChurchConfigForm, ChurchSignupForm
+from core.forms import ChurchConfigForm, ChurchOverrideForm, ChurchSignupForm
 from core.mercadopago_billing import consultar_assinatura, criar_assinatura
 from core.models import AuditLog, Church, DataDeletionRequest
 from core.ratelimit import RateLimitMixin
@@ -30,6 +32,42 @@ from people.models import Person
 
 logger = logging.getLogger(__name__)
 
+GESTAO_COMMANDS = {
+    "expirar_trials": {
+        "label": "Expirar trials vencidos",
+        "descricao": "Suspende igrejas cujo trial passou de trial_expira_em sem virar assinatura ativa.",
+        "perigo": False,
+    },
+    "enviar_lembretes": {
+        "label": "Enfileirar lembretes do dia",
+        "descricao": (
+            "Enfileira lembretes de aniversário e reunião de célula de todas as igrejas ativas "
+            "(não envia — só enfileira; rode 'Processar fila de WhatsApp' depois pra enviar de fato)."
+        ),
+        "perigo": False,
+    },
+    "backup_banco": {
+        "label": "Fazer backup agora",
+        "descricao": "Copia o banco de dados e zipa a pasta media/ em backups/, mantendo os mais recentes.",
+        "perigo": False,
+    },
+    "verificar_conexao_whatsapp": {
+        "label": "Verificar conexões de WhatsApp",
+        "descricao": "Checa a instância de cada igreja e avisa por e-mail quem caiu.",
+        "perigo": False,
+    },
+    "processar_fila_whatsapp": {
+        "label": "Processar fila de WhatsApp",
+        "descricao": "Envia as mensagens pendentes de todas as igrejas, com intervalo entre cada envio.",
+        "perigo": True,
+        "aviso": (
+            "Pode demorar bastante e consumir a cota de CPU do PythonAnywhere se a fila estiver "
+            "grande — cada mensagem espera o intervalo configurado da igreja antes da próxima. "
+            "Rode em horário de baixo uso e evite clicar de novo enquanto uma execução está em curso."
+        ),
+    },
+}
+
 
 class DashboardView(LoginRequiredMixin, TemplateView):
     """Painel do pastor/secretaria (totais, distribuição por cargo/
@@ -37,6 +75,14 @@ class DashboardView(LoginRequiredMixin, TemplateView):
     gerenciar pessoas; para um Membro comum, mostra em vez disso o Portal
     do Membro — só os próprios dados, eventos e célula (Módulo 1: "acesso
     restrito apenas para ver seus dados e eventos")."""
+
+    def get(self, request, *args, **kwargs):
+        # Dono da plataforma (sem igreja) não tem "portal de membro" nem
+        # dashboard de igreja nenhuma pra ver aqui — a home dele é a
+        # Gestão da plataforma.
+        if request.user.is_authenticated and request.user.is_platform_owner:
+            return redirect("core:gestao_dashboard")
+        return super().get(request, *args, **kwargs)
 
     def get_template_names(self):
         if self.request.user.can_manage_people:
@@ -544,3 +590,161 @@ class AssinaturaWebhookView(View):
             church.status = Church.Status.SUSPENDED
             church.save(update_fields=["status"])
         return HttpResponse(status=200)
+
+
+class GestaoDashboardView(IsPlatformOwnerMixin, TemplateView):
+    """Home do dono da plataforma — visão geral de todas as igrejas
+    (contagem por status, MRR estimado, trials perto de vencer,
+    WhatsApp desconectado). `Church` não é `TenantModel`, então
+    `Church.objects` aqui já é sempre "todas as igrejas", sem precisar
+    de nenhum `todas_as_igrejas`."""
+
+    template_name = "core/gestao/dashboard.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        status_labels = dict(Church.Status.choices)
+        by_status = Church.objects.values("status").annotate(total=Count("id")).order_by("status")
+        context["churches_by_status"] = [
+            {"status": row["status"], "label": status_labels.get(row["status"], row["status"]), "total": row["total"]}
+            for row in by_status
+        ]
+        context["total_churches"] = Church.objects.count()
+
+        limite = date.today() + relativedelta(days=14)
+        context["trials_expiring_soon"] = Church.objects.filter(
+            status=Church.Status.TRIAL, trial_expira_em__isnull=False, trial_expira_em__lte=limite,
+        ).order_by("trial_expira_em")
+
+        # MRR estimado: só igrejas ATIVAS com um plano reconhecido — trial
+        # não paga nada ainda, e um `plano` em branco/desconhecido (dado
+        # legado ou digitado errado no admin) não entra na conta em vez de
+        # quebrar a página.
+        mrr = 0
+        planos_ativos = Church.objects.filter(status=Church.Status.ACTIVE).values("plano").annotate(total=Count("id"))
+        for row in planos_ativos:
+            info = PLANOS.get(row["plano"])
+            if info:
+                mrr += info["preco"] * row["total"]
+        context["mrr_estimado"] = mrr
+
+        # Lê o flag que `verificar_conexao_whatsapp` já mantém, em vez de
+        # checar a API de cada igreja ao vivo aqui — isso seria lento e
+        # gastaria a mesma cota de CPU que a tela de comandos existe pra
+        # poupar. Reflete a última vez que aquele comando rodou.
+        context["whatsapp_disconnected_count"] = Church.objects.filter(whatsapp_disconnect_alert_sent=True).count()
+        return context
+
+
+class GestaoChurchListView(IsPlatformOwnerMixin, ListView):
+    """Lista de todas as igrejas, com filtro/busca — mesmo padrão de
+    `AuditLogListView`."""
+
+    model = Church
+    template_name = "core/gestao/church_list.html"
+    context_object_name = "churches"
+    paginate_by = 50
+
+    def get_queryset(self):
+        qs = Church.objects.all().order_by("-created_at")
+        status = self.request.GET.get("status", "")
+        if status:
+            qs = qs.filter(status=status)
+        plano = self.request.GET.get("plano", "")
+        if plano:
+            qs = qs.filter(plano=plano)
+        q = self.request.GET.get("q", "").strip()
+        if q:
+            qs = qs.filter(Q(name__icontains=q) | Q(pastor_name__icontains=q) | Q(slug__icontains=q))
+        return qs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["status_choices"] = Church.Status.choices
+        context["plano_choices"] = Church.Plano.choices
+        context["current_filters"] = {
+            "status": self.request.GET.get("status", ""),
+            "plano": self.request.GET.get("plano", ""),
+            "q": self.request.GET.get("q", ""),
+        }
+        return context
+
+
+class GestaoChurchDetailView(IsPlatformOwnerMixin, View):
+    """Detalhe de uma igreja + ajuste manual de status/plano/trial (casos
+    de suporte). Campos técnicos (WhatsApp/PIX/Mercado Pago) continuam só
+    no Django admin — aqui só o link pra lá."""
+
+    template_name = "core/gestao/church_detail.html"
+
+    def _context(self, request, church, form):
+        return {
+            "church": church,
+            "form": form,
+            # `Person.objects`/etc. não filtram sozinhos aqui — o dono da
+            # plataforma tem `current_church = None`, que pro `TenantManager`
+            # significa "sem filtro" (todas as igrejas). Tem que filtrar
+            # explicitamente por ESTA igreja, senão os números somam tudo.
+            "total_pessoas": Person.objects.filter(church=church).count(),
+            "total_usuarios": church.users.count(),
+            "admin_url": reverse("admin:core_church_change", args=[church.pk]),
+        }
+
+    def get(self, request, pk):
+        church = get_object_or_404(Church, pk=pk)
+        form = ChurchOverrideForm(instance=church)
+        return render(request, self.template_name, self._context(request, church, form))
+
+    def post(self, request, pk):
+        church = get_object_or_404(Church, pk=pk)
+        form = ChurchOverrideForm(request.POST, instance=church)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Dados da igreja atualizados.")
+            return redirect("core:gestao_church_detail", pk=church.pk)
+        return render(request, self.template_name, self._context(request, church, form))
+
+
+class GestaoCommandsView(IsPlatformOwnerMixin, TemplateView):
+    """Lista os comandos de manutenção pra rodar manualmente — o
+    PythonAnywhere free tier não tem *scheduled tasks*, então isso
+    substitui o cron enquanto não houver upgrade de plano."""
+
+    template_name = "core/gestao/commands.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["commands"] = GESTAO_COMMANDS
+        # `.pop()`, não `.get()`: mostra o resultado uma vez só, logo depois
+        # do redirect que rodou o comando — some se a página for recarregada.
+        context["last_run"] = self.request.session.pop("gestao_command_output", None)
+        return context
+
+
+class GestaoCommandRunView(IsPlatformOwnerMixin, View):
+    """Roda um `management command` síncrono, na própria request. Sem
+    fila assíncrona — pra comandos pesados (`processar_fila_whatsapp`)
+    isso pode demorar/estourar a cota de CPU do PythonAnywhere; o aviso
+    fica só na tela (`GESTAO_COMMANDS[...]["aviso"]`), não é resolvido
+    com infraestrutura nova aqui."""
+
+    def post(self, request, command_name):
+        if command_name not in GESTAO_COMMANDS:
+            raise Http404
+        out, err = StringIO(), StringIO()
+        try:
+            call_command(command_name, stdout=out, stderr=err)
+            ok = True
+        except Exception as exc:
+            logger.exception("Falha ao rodar comando de gestão: %s", command_name)
+            err.write(str(exc))
+            ok = False
+        output = (out.getvalue() + err.getvalue()).strip()
+        request.session["gestao_command_output"] = {
+            "command": command_name,
+            "label": GESTAO_COMMANDS[command_name]["label"],
+            "ok": ok,
+            "output": output,
+            "ran_at": timezone.now().isoformat(),
+        }
+        return redirect("core:gestao_commands")

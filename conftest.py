@@ -64,8 +64,21 @@ def member_user(db, church):
 
 
 @pytest.fixture
+def platform_owner_user(db):
+    # `church=None` de propósito — é exatamente essa condição que define
+    # o dono da plataforma (ver `accounts.User.is_platform_owner`).
+    return User.objects.create_user(username="dono-plataforma", password="teste12345", church=None)
+
+
+@pytest.fixture
 def pastor_client(client, pastor_user):
     client.force_login(pastor_user)
+    return client
+
+
+@pytest.fixture
+def platform_owner_client(client, platform_owner_user):
+    client.force_login(platform_owner_user)
     return client
 
 

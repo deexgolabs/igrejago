@@ -32,6 +32,25 @@ class ChurchConfigForm(forms.ModelForm):
         }
 
 
+class ChurchOverrideForm(forms.ModelForm):
+    """Ajuste manual de status/plano/trial pelo dono da plataforma
+    (`core.views.GestaoChurchDetailView`) — casos de suporte (estender
+    trial, reativar depois de resolver um pagamento fora do fluxo
+    automático do Mercado Pago). Campos técnicos (WhatsApp/PIX/Mercado
+    Pago) continuam só no Django admin — link "editar tudo" na própria
+    tela, não duplicado aqui."""
+
+    class Meta:
+        model = Church
+        fields = ["status", "plano", "trial_expira_em"]
+        widgets = {
+            # format="%Y-%m-%d" é necessário pra bater com o <input type="date">
+            # do navegador — sem isso o LANGUAGE_CODE pt-br faz o Django tentar
+            # formatar/parsear em dd/mm/aaaa e o campo nunca preenche/valida certo.
+            "trial_expira_em": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+        }
+
+
 class ChurchSignupForm(forms.Form):
     """Cadastro público de uma igreja nova (`core.ChurchSignupView`) — não
     é `ModelForm` porque cria DOIS registros (`Church` + o primeiro

@@ -45,7 +45,11 @@
 
         <div class="hidden md:flex items-center gap-4 text-sm">
             <a href="{% url 'core:dashboard' %}" class="hover:text-brand-700">Dashboard</a>
-            {% if user.can_manage_people %}
+            {% if user.is_platform_owner %}
+            <a href="{% url 'core:gestao_dashboard' %}" class="hover:text-brand-700">Painel</a>
+            <a href="{% url 'core:gestao_church_list' %}" class="hover:text-brand-700">Igrejas</a>
+            <a href="{% url 'core:gestao_commands' %}" class="hover:text-brand-700">Comandos</a>
+            {% elif user.can_manage_people %}
             <a href="{% url 'people:list' %}" class="hover:text-brand-700">Pessoas</a>
             <a href="{% url 'events:manage_list' %}" class="hover:text-brand-700">Eventos</a>
             <a href="{% url 'finance:list' %}" class="hover:text-brand-700">Financeiro</a>
@@ -69,7 +73,7 @@
             {% endif %}
             <span class="text-slate-400">|</span>
             <a href="{% url 'accounts:totp_status' %}" class="hover:text-brand-700" title="Segurança da conta">Segurança</a>
-            <span class="text-slate-600">{{ user }} <span class="text-xs text-slate-400">({{ user.get_role_display }})</span></span>
+            <span class="text-slate-600">{{ user }} <span class="text-xs text-slate-400">({% if user.is_platform_owner %}Dono da plataforma{% else %}{{ user.get_role_display }}{% endif %})</span></span>
             <form method="post" action="{% url 'accounts:logout' %}">
                 {% csrf_token %}
                 <button type="submit" class="text-slate-500 hover:text-red-600">Sair</button>
@@ -86,7 +90,11 @@
 
     <div id="mobile-nav" class="hidden md:hidden border-t border-slate-200 px-4 py-3 space-y-3 text-sm">
         <a href="{% url 'core:dashboard' %}" class="block hover:text-brand-700">Dashboard</a>
-        {% if user.can_manage_people %}
+        {% if user.is_platform_owner %}
+        <a href="{% url 'core:gestao_dashboard' %}" class="block hover:text-brand-700">Painel</a>
+        <a href="{% url 'core:gestao_church_list' %}" class="block hover:text-brand-700">Igrejas</a>
+        <a href="{% url 'core:gestao_commands' %}" class="block hover:text-brand-700">Comandos</a>
+        {% elif user.can_manage_people %}
         <a href="{% url 'people:list' %}" class="block hover:text-brand-700">Pessoas</a>
         <a href="{% url 'events:manage_list' %}" class="block hover:text-brand-700">Eventos</a>
         <a href="{% url 'linkbio:manage' %}" class="block hover:text-brand-700">Link na Bio</a>
@@ -98,7 +106,7 @@
         {% endif %}
         <a href="{% url 'accounts:totp_status' %}" class="block hover:text-brand-700">Segurança</a>
         <div class="pt-2 border-t border-slate-100 flex items-center justify-between">
-            <span class="text-slate-600">{{ user }} <span class="text-xs text-slate-400">({{ user.get_role_display }})</span></span>
+            <span class="text-slate-600">{{ user }} <span class="text-xs text-slate-400">({% if user.is_platform_owner %}Dono da plataforma{% else %}{{ user.get_role_display }}{% endif %})</span></span>
             <form method="post" action="{% url 'accounts:logout' %}">
                 {% csrf_token %}
                 <button type="submit" class="text-slate-500 hover:text-red-600">Sair</button>

@@ -22,6 +22,14 @@ class TestUserRoleProperties:
         assert pastor.is_pastor is True
         assert admin.is_pastor is False
 
+    def test_user_with_church_is_not_platform_owner(self, church):
+        user = User.objects.create_user(username="com-igreja", password="x", church=church)
+        assert user.is_platform_owner is False
+
+    def test_user_without_church_is_platform_owner(self):
+        user = User.objects.create_user(username="sem-igreja", password="x", church=None)
+        assert user.is_platform_owner is True
+
 
 @pytest.mark.django_db
 class TestCreateAccess:

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Gestão da plataforma{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold text-slate-900 mb-1">Gestão da plataforma</h1>
+<p class="text-sm text-slate-500 mb-6">Visão geral de todas as igrejas cadastradas.</p>
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <p class="text-xs font-semibold text-slate-500 uppercase mb-1">Igrejas</p>
+        <p class="text-2xl font-bold text-slate-900">{{ total_churches }}</p>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <p class="text-xs font-semibold text-slate-500 uppercase mb-1">MRR estimado</p>
+        <p class="text-2xl font-bold text-slate-900">R$ {{ mrr_estimado }}</p>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <p class="text-xs font-semibold text-slate-500 uppercase mb-1">Trials vencendo (14d)</p>
+        <p class="text-2xl font-bold text-slate-900">{{ trials_expiring_soon|length }}</p>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <p class="text-xs font-semibold text-slate-500 uppercase mb-1">WhatsApp desconectado</p>
+        <p class="text-2xl font-bold text-slate-900">{{ whatsapp_disconnected_count }}</p>
+        <p class="text-xs text-slate-400 mt-1">Reflete a última execução de "Verificar conexões" — ver
+            <a href="{% url 'core:gestao_commands' %}" class="underline">Comandos</a>.</p>
+    </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">Igrejas por status</h2>
+        {% for row in churches_by_status %}
+        <div class="flex justify-between text-sm py-1.5 border-b border-slate-100 last:border-0">
+            <span class="text-slate-600">{{ row.label }}</span>
+            <span class="font-medium text-slate-900">{{ row.total }}</span>
+        </div>
+        {% empty %}
+        <p class="text-sm text-slate-400">Nenhuma igreja cadastrada ainda.</p>
+        {% endfor %}
+    </div>
+
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">Trials vencendo em breve</h2>
+        {% for church in trials_expiring_soon %}
+        <a href="{% url 'core:gestao_church_detail' church.pk %}"
+           class="flex justify-between text-sm py-1.5 border-b border-slate-100 last:border-0 hover:text-brand-700">
+            <span>{{ church.name }}</span>
+            <span class="text-slate-500">{{ church.trial_expira_em|date:"d/m/Y" }}</span>
+        </a>
+        {% empty %}
+        <p class="text-sm text-slate-400">Nenhum trial vencendo nos próximos 14 dias.</p>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="mt-6 flex gap-3">
+    <a href="{% url 'core:gestao_church_list' %}" class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg px-4 py-2.5">Ver todas as igrejas</a>
+    <a href="{% url 'core:gestao_commands' %}" class="border border-slate-300 rounded-lg px-4 py-2.5 text-sm hover:bg-slate-100">Rodar comandos de manutenção</a>
+</div>
+{% endblock %}

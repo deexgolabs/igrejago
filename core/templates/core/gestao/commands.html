@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Comandos de manutenção{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold text-slate-900 mb-1">Comandos de manutenção</h1>
+<p class="text-sm text-slate-500 mb-6">
+    Substitui o cron enquanto a hospedagem não tiver *scheduled tasks* — rode manualmente quando precisar.
+</p>
+
+{% if last_run %}
+<div class="rounded-xl p-4 mb-6 border {% if last_run.ok %}bg-emerald-50 border-emerald-200{% else %}bg-red-50 border-red-200{% endif %}">
+    <p class="text-sm font-medium {% if last_run.ok %}text-emerald-800{% else %}text-red-800{% endif %} mb-2">
+        {{ last_run.label }} — {% if last_run.ok %}executado com sucesso{% else %}falhou{% endif %}
+    </p>
+    {% if last_run.output %}
+    <pre class="text-xs bg-white/60 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap">{{ last_run.output }}</pre>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    {% for name, cmd in commands.items %}
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-800 mb-1">{{ cmd.label }}</h2>
+        <p class="text-sm text-slate-500 mb-3">{{ cmd.descricao }}</p>
+        {% if cmd.perigo %}
+        <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-3">{{ cmd.aviso }}</p>
+        {% endif %}
+        <form method="post" action="{% url 'core:gestao_command_run' name %}"
+              {% if cmd.perigo %}onsubmit="return confirm('{{ cmd.label }} pode demorar — rodar mesmo assim?');"{% endif %}>
+            {% csrf_token %}
+            <button type="submit" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Executar agora</button>
+        </form>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}
