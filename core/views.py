@@ -66,6 +66,24 @@ GESTAO_COMMANDS = {
             "Rode em horário de baixo uso e evite clicar de novo enquanto uma execução está em curso."
         ),
     },
+    "gerar_escalas_mensais": {
+        "label": "Gerar escalas do mês seguinte",
+        "descricao": (
+            "Sorteia por rodízio os voluntários de cada departamento nos domingos do mês seguinte "
+            "e enfileira o aviso de confirmação por WhatsApp. Não roda em cron (mensal) — idempotente: "
+            "rodar de novo não duplica escala já gerada ou ajustada manualmente."
+        ),
+        "perigo": False,
+    },
+    "processar_automacao_jornada": {
+        "label": "Processar automação de jornada",
+        "descricao": (
+            "Enfileira as mensagens automáticas de acompanhamento de visitante configuradas em "
+            "Pessoas → Automação de jornada, pra quem bateu o prazo hoje. Já roda diariamente via "
+            "cron — use aqui só pra reprocessar/testar (idempotente, não duplica no mesmo dia)."
+        ),
+        "perigo": False,
+    },
 }
 
 

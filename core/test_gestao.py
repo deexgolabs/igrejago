@@ -152,3 +152,15 @@ class TestGestaoCommands:
         assert response.status_code == 302
         page = platform_owner_client.get("/gestao/comandos/")
         assert page.context["last_run"]["ok"] is False
+
+    def test_gerar_escalas_mensais_is_runnable_from_the_panel(self, platform_owner_client):
+        response = platform_owner_client.post("/gestao/comandos/gerar_escalas_mensais/executar/")
+        assert response.status_code == 302
+        page = platform_owner_client.get("/gestao/comandos/")
+        assert page.context["last_run"]["ok"] is True
+
+    def test_processar_automacao_jornada_is_runnable_from_the_panel(self, platform_owner_client):
+        response = platform_owner_client.post("/gestao/comandos/processar_automacao_jornada/executar/")
+        assert response.status_code == 302
+        page = platform_owner_client.get("/gestao/comandos/")
+        assert page.context["last_run"]["ok"] is True
