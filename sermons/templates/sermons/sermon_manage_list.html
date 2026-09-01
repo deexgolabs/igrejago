@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Sermões{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-slate-900">Sermões</h1>
+    <a href="{% url 'sermons:create' %}" class="text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg px-3 py-2">+ Novo sermão</a>
+</div>
+
+<div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr>
+                <th class="text-left px-4 py-3">Título</th>
+                <th class="text-left px-4 py-3">Pregador</th>
+                <th class="text-left px-4 py-3">Data</th>
+                <th class="text-left px-4 py-3">Série</th>
+                <th class="text-left px-4 py-3">Status</th>
+                <th class="text-right px-4 py-3">Ações</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+            {% for sermon in sermons %}
+            <tr class="hover:bg-slate-50">
+                <td class="px-4 py-3 font-medium text-slate-800">{{ sermon.title }}</td>
+                <td class="px-4 py-3 text-slate-600">{{ sermon.preacher_name|default:"—" }}</td>
+                <td class="px-4 py-3 text-slate-600">{{ sermon.date|date:"d/m/Y" }}</td>
+                <td class="px-4 py-3 text-slate-600">{{ sermon.series|default:"—" }}</td>
+                <td class="px-4 py-3">
+                    {% if sermon.is_published %}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">Publicado</span>
+                    {% else %}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full bg-slate-100 text-slate-500">Rascunho</span>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-3 text-right space-x-2">
+                    <a href="{% url 'sermons:update' sermon.pk %}" class="text-slate-500 hover:text-brand-700">Editar</a>
+                    <a href="{% url 'sermons:delete' sermon.pk %}" class="text-slate-500 hover:text-red-600">Excluir</a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">Nenhum sermão cadastrado.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

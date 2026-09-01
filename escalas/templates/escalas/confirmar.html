@@ -1,0 +1,26 @@
+{% extends "public_base.html" %}
+{% block title %}Confirmar escala{% endblock %}
+{% block content %}
+<div class="bg-white border border-slate-200 rounded-xl p-6 text-center">
+    {% if respondido %}
+        {% if voluntario.status == "CONFIRMED" %}
+        <h1 class="text-lg font-bold text-slate-900 mb-2">Presença confirmada! ✓</h1>
+        <p class="text-sm text-slate-500">Te esperamos em {{ voluntario.escala.date|date:"d/m/Y" }}.</p>
+        {% else %}
+        <h1 class="text-lg font-bold text-slate-900 mb-2">Tudo bem, obrigado por avisar</h1>
+        <p class="text-sm text-slate-500">Registramos que você não vai poder ir dessa vez.</p>
+        {% endif %}
+    {% else %}
+        <h1 class="text-lg font-bold text-slate-900 mb-1">Você foi escalado(a)</h1>
+        <p class="text-sm text-slate-500 mb-4">
+            {{ voluntario.escala.department.name }} — {{ voluntario.escala.date|date:"d/m/Y" }}
+            {% if voluntario.escala.time %}às {{ voluntario.escala.time|date:"H:i" }}{% endif %}
+        </p>
+        <form method="post" class="flex flex-col sm:flex-row gap-2 justify-center">
+            {% csrf_token %}
+            <button type="submit" name="acao" value="confirmar" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg px-4 py-2.5">Confirmar presença</button>
+            <button type="submit" name="acao" value="recusar" class="border border-slate-300 text-slate-700 text-sm font-medium rounded-lg px-4 py-2.5 hover:bg-slate-100">Não vou poder ir</button>
+        </form>
+    {% endif %}
+</div>
+{% endblock %}

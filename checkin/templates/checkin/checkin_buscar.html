@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Buscar check-in{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold text-slate-900 mb-1">Buscar pra retirada</h1>
+<p class="text-sm text-slate-500 mb-6">Digite o código de 4 dígitos que está na etiqueta do responsável.</p>
+
+<form method="get" class="flex gap-2 mb-6 max-w-sm">
+    <input type="text" name="code" value="{{ code }}" maxlength="4" inputmode="numeric" placeholder="0000"
+           class="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-lg font-mono tracking-widest text-center" autofocus>
+    <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm rounded-lg px-4 py-2">Buscar</button>
+</form>
+
+{% if checkin %}
+<div class="bg-white border border-slate-200 rounded-xl p-6 max-w-md">
+    <p class="text-xs text-slate-400 mb-1">Criança</p>
+    <h2 class="text-lg font-bold text-slate-900 mb-3">{{ checkin.child_name }}</h2>
+    <p class="text-sm text-slate-600 py-1"><span class="text-slate-400">Sala:</span> {{ checkin.sala|default:"—" }}</p>
+    <p class="text-sm text-slate-600 py-1"><span class="text-slate-400">Responsável:</span> {{ checkin.guardian_name }}</p>
+    <p class="text-sm text-slate-600 py-1"><span class="text-slate-400">Check-in:</span> {{ checkin.checked_in_at|date:"H:i" }}</p>
+    <form method="post" action="{% url 'checkin:checkout' checkin.pk %}" class="mt-4"
+          onsubmit="return confirm('Confirmar retirada de {{ checkin.child_name }}?');">
+        {% csrf_token %}
+        <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded-lg px-4 py-2">Confirmar retirada</button>
+    </form>
+</div>
+{% endif %}
+{% endblock %}

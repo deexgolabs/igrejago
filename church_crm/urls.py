@@ -13,6 +13,9 @@ urlpatterns = [
     path("celulas/", include("cells.urls")),
     path("mensagens/", include("notifications.urls")),
     path("formularios/", include("custom_forms.urls")),
+    path("checkin/", include("checkin.urls")),
+    path("escalas/", include("escalas.urls")),
+    path("sermoes/", include("sermons.urls")),
 
     # Páginas públicas (sem login) — a igreja é resolvida pelo próprio
     # slug na URL (`core.tenancy.PublicChurchMixin` ou equivalente manual
@@ -23,6 +26,7 @@ urlpatterns = [
     path("<slug:church_slug>/eventos/", include("events.public_urls")),
     path("<slug:church_slug>/links/", include("linkbio.public_urls")),
     path("<slug:church_slug>/formularios/", include("custom_forms.public_urls")),
+    path("<slug:church_slug>/sermoes/", include("sermons.public_urls")),
 
     path("", include("core.urls")),
 ]

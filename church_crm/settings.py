@@ -32,6 +32,11 @@ ALLOWED_HOSTS = [h.strip() for h in os.getenv("ALLOWED_HOSTS", "localhost,127.0.
 # separadas por vírgula (ex.: "https://igrejago.link").
 CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()]
 
+# Base do site pra montar links absolutos fora de request (ex.: comandos
+# de cron como `gerar_escalas_mensais`, que não tem `request.build_absolute_uri`
+# disponível) — sem barra no final.
+SITE_URL = os.getenv("SITE_URL", "http://localhost:8000")
+
 
 # Application definition
 
@@ -56,6 +61,9 @@ INSTALLED_APPS = [
     "cells",
     "notifications",
     "custom_forms",
+    "checkin",
+    "escalas",
+    "sermons",
 ]
 
 MIDDLEWARE = [

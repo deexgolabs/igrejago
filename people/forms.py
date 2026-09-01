@@ -19,13 +19,14 @@ class PersonForm(forms.ModelForm):
             "is_visitor", "is_member", "role", "status", "department",
             "family", "tags", "pipeline_stage",
             "member_since", "baptized", "baptism_date", "wants_membership",
-            "notes",
+            "notes", "guardian", "medical_notes",
         ]
         widgets = {
             "birth_date": DATE_INPUT,
             "member_since": DATE_INPUT,
             "baptism_date": DATE_INPUT,
             "notes": forms.Textarea(attrs={"rows": 3}),
+            "medical_notes": forms.Textarea(attrs={"rows": 2}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -44,6 +45,10 @@ class PersonForm(forms.ModelForm):
         self.fields["department"].queryset = Department.objects.all()
         self.fields["family"].queryset = Family.objects.all()
         self.fields["tags"].queryset = Tag.objects.all()
+        guardian_qs = Person.objects.all()
+        if self.instance.pk:
+            guardian_qs = guardian_qs.exclude(pk=self.instance.pk)
+        self.fields["guardian"].queryset = guardian_qs
 
     def clean_pipeline_stage(self):
         return self.cleaned_data.get("pipeline_stage") or Person.PipelineStage.NEW_VISITOR

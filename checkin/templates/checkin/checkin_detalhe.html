@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Check-in — {{ checkin.child_name }}{% endblock %}
+{% block content %}
+<div class="max-w-md bg-white border border-slate-200 rounded-xl p-6">
+    <p class="text-xs text-slate-400 mb-1">Criança</p>
+    <h1 class="text-xl font-bold text-slate-900 mb-3">{{ checkin.child_name }}</h1>
+    <p class="text-sm text-slate-600 py-1"><span class="text-slate-400">Sala:</span> {{ checkin.sala|default:"—" }}</p>
+    <p class="text-sm text-slate-600 py-1"><span class="text-slate-400">Responsável:</span> {{ checkin.guardian_name }}</p>
+    <p class="text-sm text-slate-600 py-1"><span class="text-slate-400">Código:</span> <span class="font-mono">{{ checkin.pickup_code }}</span></p>
+    <p class="text-sm text-slate-600 py-1"><span class="text-slate-400">Check-in:</span> {{ checkin.checked_in_at|date:"d/m/Y H:i" }}</p>
+
+    {% if checkin.child.medical_notes %}
+    <div class="bg-red-50 border border-red-200 rounded-lg p-3 mt-3 text-sm text-red-700">
+        <strong>⚠ Restrição:</strong> {{ checkin.child.medical_notes }}
+    </div>
+    {% endif %}
+
+    {% if checkin.is_active %}
+    <form method="post" action="{% url 'checkin:checkout' checkin.pk %}" class="mt-4"
+          onsubmit="return confirm('Confirmar retirada de {{ checkin.child_name }}?');">
+        {% csrf_token %}
+        <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded-lg px-4 py-2">Confirmar retirada</button>
+    </form>
+    {% else %}
+    <p class="text-sm text-emerald-700 font-medium mt-4">✓ Já retirada às {{ checkin.checked_out_at|date:"H:i" }}</p>
+    {% endif %}
+</div>
+{% endblock %}

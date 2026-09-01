@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Escalas{% endblock %}
+{% block content %}
+<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+    <h1 class="text-2xl font-bold text-slate-900">Escalas — {{ month_name }} {{ year }}</h1>
+    <div class="flex gap-2">
+        <a href="?ano={{ prev_year }}&mes={{ prev_month }}" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">← Anterior</a>
+        <a href="?ano={{ next_year }}&mes={{ next_month }}" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Próximo →</a>
+        <a href="{% url 'escalas:create' %}" class="text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg px-3 py-2">+ Nova escala</a>
+    </div>
+</div>
+
+<div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+    <table class="w-full text-sm table-fixed">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr>
+                <th class="px-2 py-2">Dom</th><th class="px-2 py-2">Seg</th><th class="px-2 py-2">Ter</th>
+                <th class="px-2 py-2">Qua</th><th class="px-2 py-2">Qui</th><th class="px-2 py-2">Sex</th><th class="px-2 py-2">Sáb</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for week in weeks %}
+            <tr class="border-t border-slate-100">
+                {% for day in week %}
+                <td class="align-top p-2 h-28 {% if not day.in_month %}bg-slate-50{% elif day.is_today %}bg-brand-50{% endif %}">
+                    <p class="text-xs font-medium mb-1 {% if not day.in_month %}text-slate-300{% else %}text-slate-600{% endif %}">{{ day.date.day }}</p>
+                    {% for escala in day.escalas %}
+                    <a href="{% url 'escalas:detail' escala.pk %}" class="block text-xs px-1.5 py-1 mb-1 rounded bg-brand-100 text-brand-800 truncate hover:bg-brand-200">
+                        {{ escala.department.name }}{% if escala.time %} {{ escala.time|date:"H:i" }}{% endif %}
+                    </a>
+                    {% endfor %}
+                </td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Check-in infantil{% endblock %}
+{% block content %}
+<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+    <h1 class="text-2xl font-bold text-slate-900">Check-in infantil</h1>
+    <div class="flex flex-wrap gap-2">
+        <a href="{% url 'checkin:sala_list' %}" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Salas</a>
+        <a href="{% url 'checkin:buscar' %}" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Buscar p/ retirada</a>
+        <a href="{% url 'checkin:create' %}" class="text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg px-3 py-2">+ Novo check-in</a>
+    </div>
+</div>
+
+<div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr>
+                <th class="text-left px-4 py-3">Criança</th>
+                <th class="text-left px-4 py-3">Sala</th>
+                <th class="text-left px-4 py-3">Responsável</th>
+                <th class="text-left px-4 py-3">Código</th>
+                <th class="text-left px-4 py-3">Check-in</th>
+                <th class="text-left px-4 py-3">Status</th>
+                <th class="text-right px-4 py-3">Ações</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+            {% for checkin in checkins %}
+            <tr class="hover:bg-slate-50">
+                <td class="px-4 py-3 font-medium text-slate-800">{{ checkin.child_name }}</td>
+                <td class="px-4 py-3 text-slate-600">{{ checkin.sala|default:"—" }}</td>
+                <td class="px-4 py-3 text-slate-600">{{ checkin.guardian_name }}</td>
+                <td class="px-4 py-3 font-mono text-slate-800">{{ checkin.pickup_code }}</td>
+                <td class="px-4 py-3 text-slate-600">{{ checkin.checked_in_at|date:"H:i" }}</td>
+                <td class="px-4 py-3">
+                    {% if checkin.is_active %}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full bg-amber-50 text-amber-700">Com a igreja</span>
+                    {% else %}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">Retirada às {{ checkin.checked_out_at|date:"H:i" }}</span>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-3 text-right">
+                    <a href="{% url 'checkin:etiqueta' checkin.pk %}" class="text-brand-700 hover:underline text-xs">Etiqueta</a>
+                    {% if checkin.is_active %}
+                    <form method="post" action="{% url 'checkin:checkout' checkin.pk %}" class="inline"
+                          onsubmit="return confirm('Confirmar retirada de {{ checkin.child_name }}?');">
+                        {% csrf_token %}
+                        <button type="submit" class="text-emerald-700 hover:underline text-xs ml-2">Check-out</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="7" class="px-4 py-8 text-center text-slate-400">Nenhum check-in hoje ainda.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

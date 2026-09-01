@@ -1,9 +1,11 @@
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
+from django.core.management import call_command
+from django.utils import timezone
 
 from notifications.models import WhatsAppMessage
-from people.models import Family, Person, Tag
+from people.models import AutomacaoJornada, Family, Person, Tag
 
 
 @pytest.mark.django_db
@@ -273,3 +275,89 @@ class TestTag:
         response = pastor_client.post(f"/pessoas/tags/{tag.pk}/excluir/")
         assert response.status_code == 302
         assert not Tag.objects.filter(pk=tag.pk).exists()
+
+
+@pytest.mark.django_db
+class TestPipelineStageChangedAt:
+    def test_set_on_creation(self, church):
+        person = Person.objects.create(church=church, full_name="Novo Visitante")
+        assert person.pipeline_stage_changed_at is not None
+
+    def test_updated_when_stage_changes(self, church):
+        person = Person.objects.create(church=church, full_name="Visitante")
+        original = person.pipeline_stage_changed_at
+
+        person.pipeline_stage = Person.PipelineStage.FOLLOWING_UP
+        person.save()
+        person.refresh_from_db()
+        assert person.pipeline_stage_changed_at > original
+
+    def test_not_touched_when_other_fields_change(self, church):
+        person = Person.objects.create(church=church, full_name="Visitante")
+        original = person.pipeline_stage_changed_at
+
+        person.notes = "Ligou pra igreja"
+        person.save()
+        person.refresh_from_db()
+        assert person.pipeline_stage_changed_at == original
+
+
+@pytest.mark.django_db
+class TestProcessarAutomacaoJornada:
+    def test_queues_message_for_person_matching_stage_and_days(self, church):
+        AutomacaoJornada.objects.create(
+            church=church, etapa=Person.PipelineStage.NEW_VISITOR, dias_depois=3,
+            mensagem="Oi {nome}, tudo bem?",
+        )
+        person = Person.objects.create(church=church, full_name="Maria", phone="62911112222")
+        Person.objects.filter(pk=person.pk).update(
+            pipeline_stage_changed_at=timezone.now() - timedelta(days=3)
+        )
+
+        call_command("processar_automacao_jornada")
+
+        msg = WhatsAppMessage.objects.get()
+        assert msg.person == person
+        assert msg.message == "Oi Maria, tudo bem?"
+        assert msg.campaign_label.startswith("Jornada-")
+
+    def test_does_not_queue_when_days_dont_match(self, church):
+        AutomacaoJornada.objects.create(
+            church=church, etapa=Person.PipelineStage.NEW_VISITOR, dias_depois=3, mensagem="Oi {nome}",
+        )
+        person = Person.objects.create(church=church, full_name="Maria", phone="62911112222")
+        Person.objects.filter(pk=person.pk).update(
+            pipeline_stage_changed_at=timezone.now() - timedelta(days=1)
+        )
+
+        call_command("processar_automacao_jornada")
+        assert not WhatsAppMessage.objects.exists()
+
+    def test_running_twice_the_same_day_does_not_duplicate(self, church):
+        AutomacaoJornada.objects.create(
+            church=church, etapa=Person.PipelineStage.NEW_VISITOR, dias_depois=0, mensagem="Oi {nome}",
+        )
+        Person.objects.create(church=church, full_name="Maria", phone="62911112222")
+
+        call_command("processar_automacao_jornada")
+        call_command("processar_automacao_jornada")
+        assert WhatsAppMessage.objects.count() == 1
+
+    def test_inactive_rule_is_ignored(self, church):
+        AutomacaoJornada.objects.create(
+            church=church, etapa=Person.PipelineStage.NEW_VISITOR, dias_depois=0,
+            mensagem="Oi {nome}", ativo=False,
+        )
+        Person.objects.create(church=church, full_name="Maria", phone="62911112222")
+
+        call_command("processar_automacao_jornada")
+        assert not WhatsAppMessage.objects.exists()
+
+    def test_person_without_phone_is_not_queued(self, church):
+        AutomacaoJornada.objects.create(
+            church=church, etapa=Person.PipelineStage.NEW_VISITOR, dias_depois=0, mensagem="Oi {nome}",
+        )
+        Person.objects.create(church=church, full_name="Sem Telefone")
+
+        call_command("processar_automacao_jornada")
+        assert not WhatsAppMessage.objects.exists()

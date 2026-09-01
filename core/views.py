@@ -130,7 +130,29 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             .annotate(total=Count("id"))
             .order_by("-total")
         )
+        context["members_by_role_chart"] = json.dumps(context["members_by_role"])
+        context["members_by_department_chart"] = json.dumps([
+            {"label": row["department__name"], "total": row["total"]}
+            for row in context["members_by_department"]
+        ])
+        context["pipeline_funnel"] = json.dumps(self._pipeline_funnel())
         return context
+
+    @staticmethod
+    def _pipeline_funnel():
+        # Sempre as 4 etapas, na ordem do funil (mesmo sem ninguém numa
+        # etapa) — pra barra não "sumir" e o gráfico ficar sempre
+        # comparável mês a mês.
+        stage_labels = dict(Person.PipelineStage.choices)
+        counts = dict(
+            Person.objects.values("pipeline_stage").annotate(total=Count("id")).values_list(
+                "pipeline_stage", "total"
+            )
+        )
+        return [
+            {"label": label, "total": counts.get(stage, 0)}
+            for stage, label in stage_labels.items()
+        ]
 
     def _member_context(self):
         person = self.request.user.person

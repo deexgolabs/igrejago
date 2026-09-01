@@ -66,6 +66,9 @@
                 <div id="nav-mais" class="hidden absolute right-0 mt-2 w-48 bg-white border border-slate-200 rounded-lg shadow-lg py-1 z-10">
                     <a href="{% url 'linkbio:manage' %}" class="block px-4 py-2 hover:bg-slate-50">Link na Bio</a>
                     <a href="{% url 'cells:list' %}" class="block px-4 py-2 hover:bg-slate-50">Células</a>
+                    <a href="{% url 'checkin:lista' %}" class="block px-4 py-2 hover:bg-slate-50">Check-in infantil</a>
+                    <a href="{% url 'escalas:calendario' %}" class="block px-4 py-2 hover:bg-slate-50">Escalas</a>
+                    <a href="{% url 'sermons:list' %}" class="block px-4 py-2 hover:bg-slate-50">Sermões</a>
                     <a href="{% url 'custom_forms:list' %}" class="block px-4 py-2 hover:bg-slate-50">Formulários</a>
                     <a href="{% url 'core:settings' %}" class="block px-4 py-2 hover:bg-slate-50 border-t border-slate-100">Configurações</a>
                 </div>
@@ -101,6 +104,9 @@
         <a href="{% url 'linkbio:manage' %}" class="block hover:text-brand-700">Link na Bio</a>
         <a href="{% url 'finance:list' %}" class="block hover:text-brand-700">Financeiro</a>
         <a href="{% url 'cells:list' %}" class="block hover:text-brand-700">Células</a>
+        <a href="{% url 'checkin:lista' %}" class="block hover:text-brand-700">Check-in infantil</a>
+        <a href="{% url 'escalas:calendario' %}" class="block hover:text-brand-700">Escalas</a>
+        <a href="{% url 'sermons:list' %}" class="block hover:text-brand-700">Sermões</a>
         <a href="{% url 'notifications:queue' %}" class="block hover:text-brand-700">Mensagens</a>
         <a href="{% url 'custom_forms:list' %}" class="block hover:text-brand-700">Formulários</a>
         <a href="{% url 'core:settings' %}" class="block hover:text-brand-700">Configurações</a>

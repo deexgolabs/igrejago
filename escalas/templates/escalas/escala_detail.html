@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{{ escala.department.name }} — {{ escala.date|date:"d/m/Y" }}{% endblock %}
+{% block content %}
+<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-900">{{ escala.department.name }}</h1>
+        <p class="text-sm text-slate-500">{{ escala.date|date:"d/m/Y" }}{% if escala.time %} às {{ escala.time|date:"H:i" }}{% endif %}{% if escala.title %} — {{ escala.title }}{% endif %}</p>
+    </div>
+    <div class="flex gap-2">
+        <a href="{% url 'escalas:update' escala.pk %}" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Editar</a>
+        <a href="{% url 'escalas:calendario' %}" class="text-sm text-slate-500 hover:text-slate-800 px-3 py-2">← Calendário</a>
+    </div>
+</div>
+
+<div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr><th class="text-left px-4 py-3">Voluntário</th><th class="text-left px-4 py-3">Status</th></tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+            {% for v in voluntarios %}
+            <tr class="hover:bg-slate-50">
+                <td class="px-4 py-3 font-medium text-slate-800">{{ v.person.full_name }}</td>
+                <td class="px-4 py-3">
+                    {% if v.status == "CONFIRMED" %}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">Confirmado</span>
+                    {% elif v.status == "DECLINED" %}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full bg-red-50 text-red-700">Não vai poder ir</span>
+                    {% else %}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full bg-amber-50 text-amber-700">Aguardando</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="2" class="px-4 py-8 text-center text-slate-400">Nenhum voluntário escalado ainda.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

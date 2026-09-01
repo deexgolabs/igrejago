@@ -27,30 +27,44 @@
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
     <div class="bg-white rounded-xl border border-slate-200 p-5">
         <h2 class="text-sm font-semibold text-slate-700 mb-3">Membros por cargo</h2>
-        {% for row in members_by_role %}
-        <div class="flex justify-between text-sm py-1.5 border-b border-slate-100 last:border-0">
-            <span class="text-slate-600">{{ row.label }}</span>
-            <span class="font-semibold text-slate-800">{{ row.total }}</span>
+        {% if members_by_role %}
+        <div class="flex items-center gap-4">
+            <canvas id="roleChart" class="shrink-0" width="140" height="140"></canvas>
+            <div class="flex-1 min-w-0">
+                {% for row in members_by_role %}
+                <div class="flex justify-between text-sm py-1.5 border-b border-slate-100 last:border-0">
+                    <span class="text-slate-600 truncate">{{ row.label }}</span>
+                    <span class="font-semibold text-slate-800 ml-2">{{ row.total }}</span>
+                </div>
+                {% endfor %}
+            </div>
         </div>
-        {% empty %}
+        {% else %}
         <p class="text-sm text-slate-400">Nenhum membro cadastrado ainda.</p>
-        {% endfor %}
+        {% endif %}
     </div>
 
     <div class="bg-white rounded-xl border border-slate-200 p-5">
         <h2 class="text-sm font-semibold text-slate-700 mb-3">Membros por departamento</h2>
-        {% for row in members_by_department %}
-        <div class="flex justify-between text-sm py-1.5 border-b border-slate-100 last:border-0">
-            <span class="text-slate-600">{{ row.department__name }}</span>
-            <span class="font-semibold text-slate-800">{{ row.total }}</span>
+        {% if members_by_department %}
+        <div class="flex items-center gap-4">
+            <canvas id="departmentChart" class="shrink-0" width="140" height="140"></canvas>
+            <div class="flex-1 min-w-0">
+                {% for row in members_by_department %}
+                <div class="flex justify-between text-sm py-1.5 border-b border-slate-100 last:border-0">
+                    <span class="text-slate-600 truncate">{{ row.department__name }}</span>
+                    <span class="font-semibold text-slate-800 ml-2">{{ row.total }}</span>
+                </div>
+                {% endfor %}
+            </div>
         </div>
-        {% empty %}
+        {% else %}
         <p class="text-sm text-slate-400">Nenhum membro em departamento ainda.</p>
-        {% endfor %}
+        {% endif %}
     </div>
 </div>
 
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
     <div class="bg-white rounded-xl border border-slate-200 p-5">
         <h2 class="text-sm font-semibold text-slate-700 mb-3">Aniversariantes do mês</h2>
         {% for person in birthdays_this_month %}
@@ -69,7 +83,38 @@
     </div>
 </div>
 
+<div class="bg-white rounded-xl border border-slate-200 p-5">
+    <h2 class="text-sm font-semibold text-slate-700 mb-3">Funil de acompanhamento de visitantes</h2>
+    <canvas id="funnelChart" height="110"></canvas>
+</div>
+
 <script>
+    // Todos os gráficos usam só a cor de marca da igreja (`paleta_marca`),
+    // variando a tonalidade — mesma paleta usada no resto do sistema, sem
+    // depender de uma lib de cor extra só pra isso.
+    const brandShades = ['{{ paleta_marca.600 }}', '{{ paleta_marca.300 }}', '{{ paleta_marca.800 }}', '{{ paleta_marca.400 }}', '{{ paleta_marca.900 }}', '{{ paleta_marca.200 }}'];
+
+    function pieChart(elementId, rows) {
+        const canvas = document.getElementById(elementId);
+        if (!canvas || !rows.length) return;
+        new Chart(canvas, {
+            type: 'doughnut',
+            data: {
+                labels: rows.map(r => r.label),
+                datasets: [{
+                    data: rows.map(r => r.total),
+                    backgroundColor: rows.map((_, i) => brandShades[i % brandShades.length]),
+                    borderWidth: 2,
+                    borderColor: '#fff',
+                }],
+            },
+            options: { plugins: { legend: { display: false } } },
+        });
+    }
+
+    pieChart('roleChart', {{ members_by_role_chart|safe }});
+    pieChart('departmentChart', {{ members_by_department_chart|safe }});
+
     const growthData = {{ growth_chart|safe }};
     new Chart(document.getElementById('growthChart'), {
         type: 'bar',
@@ -85,6 +130,24 @@
         options: {
             plugins: { legend: { display: false } },
             scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } },
+        },
+    });
+
+    const funnelData = {{ pipeline_funnel|safe }};
+    new Chart(document.getElementById('funnelChart'), {
+        type: 'bar',
+        data: {
+            labels: funnelData.map(r => r.label),
+            datasets: [{
+                data: funnelData.map(r => r.total),
+                backgroundColor: '{{ paleta_marca.600 }}',
+                borderRadius: 4,
+            }],
+        },
+        options: {
+            indexAxis: 'y',
+            plugins: { legend: { display: false } },
+            scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } },
         },
     });
 </script>

@@ -1,0 +1,40 @@
+{% extends "public_base.html" %}
+{% block title %}Sermões{% endblock %}
+{% block content %}
+<h2 class="text-center text-sm font-semibold text-slate-500 uppercase tracking-wide mb-4">Sermões</h2>
+
+<div class="space-y-4">
+    {% for sermon in sermons %}
+    <div class="bg-white border border-slate-200 rounded-xl p-4">
+        <h3 class="font-bold text-slate-900">{{ sermon.title }}</h3>
+        <p class="text-xs text-slate-500 mb-3">
+            {{ sermon.date|date:"d/m/Y" }}{% if sermon.preacher_name %} · {{ sermon.preacher_name }}{% endif %}{% if sermon.series %} · {{ sermon.series }}{% endif %}
+        </p>
+
+        {% if sermon.description %}
+        <p class="text-sm text-slate-600 mb-3">{{ sermon.description|linebreaksbr }}</p>
+        {% endif %}
+
+        {% if sermon.audio_file %}
+        <audio controls preload="none" class="w-full mb-2">
+            <source src="{{ sermon.audio_file.url }}">
+        </audio>
+        {% endif %}
+
+        {% if sermon.youtube_embed_url %}
+        <div class="aspect-video mb-2">
+            <iframe class="w-full h-full rounded-lg" src="{{ sermon.youtube_embed_url }}"
+                    title="{{ sermon.title }}" frameborder="0" allowfullscreen loading="lazy"></iframe>
+        </div>
+        {% elif sermon.external_video_url %}
+        <a href="{{ sermon.external_video_url }}" target="_blank" rel="noopener"
+           class="inline-block text-sm font-medium rounded-lg px-4 py-2 text-white" style="background:{{ paleta_marca.600 }}">
+            Assistir vídeo
+        </a>
+        {% endif %}
+    </div>
+    {% empty %}
+    <p class="text-center text-sm text-slate-400 py-8">Nenhum sermão publicado ainda.</p>
+    {% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Salas infantis{% endblock %}
+{% block content %}
+<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+    <h1 class="text-2xl font-bold text-slate-900">Salas infantis</h1>
+    <div class="flex gap-2">
+        <a href="{% url 'checkin:lista' %}" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">← Check-in</a>
+        <a href="{% url 'checkin:sala_create' %}" class="text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg px-3 py-2">+ Nova sala</a>
+    </div>
+</div>
+
+<div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr>
+                <th class="text-left px-4 py-3">Nome</th>
+                <th class="text-left px-4 py-3">Faixa etária</th>
+                <th class="text-left px-4 py-3">Capacidade</th>
+                <th class="text-left px-4 py-3">Status</th>
+                <th class="text-right px-4 py-3">Ações</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+            {% for sala in salas %}
+            <tr class="hover:bg-slate-50">
+                <td class="px-4 py-3 font-medium text-slate-800">{{ sala.name }}</td>
+                <td class="px-4 py-3 text-slate-600">
+                    {% if sala.idade_min or sala.idade_max %}{{ sala.idade_min|default:"0" }}–{{ sala.idade_max|default:"+" }} anos{% else %}—{% endif %}
+                </td>
+                <td class="px-4 py-3 text-slate-600">{{ sala.capacidade|default:"—" }}</td>
+                <td class="px-4 py-3">
+                    {% if sala.is_active %}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">Ativa</span>
+                    {% else %}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full bg-slate-100 text-slate-600">Inativa</span>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-3 text-right">
+                    <a href="{% url 'checkin:sala_update' sala.pk %}" class="text-brand-700 hover:underline text-xs">Editar</a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">Nenhuma sala cadastrada ainda.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
