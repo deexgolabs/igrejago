@@ -83,6 +83,33 @@ def criar_instancia(church_config, *, instance_name, webhook_url=None, webhook_s
     return response.json()
 
 
+def configurar_webhook(church_config, *, instance_name, webhook_url, webhook_secret):
+    """Configura (ou reconfigura) o webhook de uma instância JÁ EXISTENTE
+    — usado como fallback quando `criar_instancia()` falha porque a
+    instância já existe (a Evolution API rejeita recriar uma instância
+    com o mesmo nome — HTTP 403 "already in use" — mesmo sendo isso
+    inofensivo pra quem só queria reconfigurar o webhook, sem afetar a
+    conexão já feita). Mesmo formato de `webhook` embutido em
+    `criar_instancia()`; endpoint e formato confirmados ao vivo contra um
+    servidor Evolution v2.3.7 real."""
+    response = requests.post(
+        f"{church_config.whatsapp_api_url}/webhook/set/{instance_name}",
+        json={
+            "webhook": {
+                "url": webhook_url,
+                "byEvents": False,
+                "base64": False,
+                "headers": {"X-Webhook-Secret": webhook_secret},
+                "events": ["MESSAGES_UPDATE"],
+            }
+        },
+        headers={"apikey": church_config.whatsapp_api_key},
+        timeout=20,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
 def obter_qrcode(church_config):
     """Busca o QR code (base64) pra escanear e conectar o número. Chamado
     de novo (não só uma vez na criação) porque o QR expira em minutos."""

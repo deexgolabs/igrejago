@@ -240,6 +240,34 @@ class TestWhatsAppConnectionAdmin:
         assert church_config.whatsapp_webhook_secret == "ja-existia"
         assert mock_criar.call_args.kwargs["webhook_secret"] == "ja-existia"
 
+    def test_create_instance_falls_back_to_webhook_config_when_already_exists(
+        self, admin_client_, church_config, settings
+    ):
+        """Confirmado ao vivo contra um servidor Evolution real: recriar
+        uma instância já existente (já conectada) devolve 403 "already in
+        use" — a view não pode tratar isso como falha, senão ninguém
+        conseguiria reconfigurar o webhook de uma igreja que já conectou
+        o WhatsApp antes dessa correção existir."""
+        import requests
+        from unittest.mock import patch, Mock
+
+        settings.EVOLUTION_API_URL = "https://fake.example.com"
+        settings.EVOLUTION_API_KEY = "global-key"
+        church_config.whatsapp_webhook_secret = ""
+        church_config.save()
+
+        fake_response = Mock(status_code=403, text='{"response":{"message":["already in use"]}}')
+        http_error = requests.HTTPError(response=fake_response)
+
+        with patch("core.admin.whatsapp.criar_instancia", side_effect=http_error), \
+             patch("core.admin.whatsapp.configurar_webhook") as mock_configurar:
+            response = admin_client_.get(f"/admin/core/church/{church_config.pk}/whatsapp/criar-instancia/")
+
+        assert response.status_code == 302
+        mock_configurar.assert_called_once()
+        church_config.refresh_from_db()
+        assert church_config.whatsapp_webhook_secret  # segredo foi gerado mesmo com a instância já existindo
+
 
 @pytest.mark.django_db
 class TestSettingsView:

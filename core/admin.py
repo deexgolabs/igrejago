@@ -1,5 +1,6 @@
 import secrets
 
+import requests
 from django.contrib import admin, messages
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect
@@ -123,6 +124,29 @@ class ChurchAdmin(admin.ModelAdmin):
                 church, instance_name=church.whatsapp_instance,
                 webhook_url=webhook_url, webhook_secret=church.whatsapp_webhook_secret,
             )
+        except requests.HTTPError as exc:
+            # A Evolution API rejeita (403 "already in use") recriar uma
+            # instância com o mesmo nome — inofensivo pra quem só queria
+            # (re)configurar o webhook, sem afetar a conexão já feita.
+            # Confirmado ao vivo: esse é o caso mais comum de clicar
+            # "Criar/recriar instância" numa igreja que já está conectada.
+            resposta = exc.response.text if exc.response is not None else ""
+            if exc.response is not None and exc.response.status_code == 403 and "already in use" in resposta:
+                try:
+                    whatsapp.configurar_webhook(
+                        church, instance_name=church.whatsapp_instance,
+                        webhook_url=webhook_url, webhook_secret=church.whatsapp_webhook_secret,
+                    )
+                    messages.success(
+                        request,
+                        "Essa instância já existia (conexão preservada) — webhook de confirmação "
+                        "de entrega configurado/atualizado.",
+                    )
+                except Exception as exc2:
+                    messages.error(request, f"Instância já existia, mas falhou ao configurar o webhook: {exc2}")
+                return self._back_to_change_form(pk)
+            messages.error(request, f"Falha ao criar instância: {exc}")
+            return self._back_to_change_form(pk)
         except Exception as exc:
             messages.error(request, f"Falha ao criar instância: {exc}")
             return self._back_to_change_form(pk)
