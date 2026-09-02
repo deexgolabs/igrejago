@@ -238,6 +238,16 @@ VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "")
 VAPID_CLAIMS_EMAIL = os.getenv("VAPID_CLAIMS_EMAIL", "mailto:naoresponda@igreja.local")
 
 
+# SMS — "preparado, não integrado" (mesmo padrão de Sentry/Web Push acima):
+# `core.sms.enviar_sms` ainda não lê nada daqui, sempre cai no fallback de
+# console (nenhum provedor escolhido pra saber o formato da chamada real).
+# Só documentando o contrato pra quando escolher um (Twilio, Zenvia, Total
+# Voice, AWS SNS etc.).
+SMS_PROVIDER = os.getenv("SMS_PROVIDER", "")
+SMS_API_KEY = os.getenv("SMS_API_KEY", "")
+SMS_API_SECRET = os.getenv("SMS_API_SECRET", "")
+
+
 # Evolution API (WhatsApp) — infraestrutura de PLATAFORMA, não por igreja.
 # Multi-tenência: um servidor só, operado pelo dono, com uma instância
 # isolada por igreja (`core.models.Church.whatsapp_instance`). A igreja
