@@ -79,7 +79,11 @@ class ChurchSignupForm(forms.Form):
         password_validation.validate_password(password)
         return password
 
-    def save(self):
+    def save(self, *, matriz=None):
+        """`matriz`: reaproveitado por `core.views.ChurchNetworkCreateView`
+        (cadastro de FILIAL, feito pelo pastor da matriz já logado) —
+        `None` preserva o cadastro público de sempre (igreja
+        independente, sem rede)."""
         from datetime import date, timedelta
 
         from django.db import transaction
@@ -90,6 +94,7 @@ class ChurchSignupForm(forms.Form):
                 pastor_name=self.cleaned_data["pastor_name"],
                 status=Church.Status.TRIAL,
                 trial_expira_em=date.today() + timedelta(days=30),
+                matriz=matriz,
             )
             user = User.objects.create_user(
                 username=self.cleaned_data["username"],

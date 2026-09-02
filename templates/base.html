@@ -73,9 +73,36 @@
                     <a href="{% url 'sermons:list' %}" class="block px-4 py-2 hover:bg-slate-50">Sermões</a>
                     <a href="{% url 'custom_forms:list' %}" class="block px-4 py-2 hover:bg-slate-50">Formulários</a>
                     <a href="{% url 'core:shortlink_list' %}" class="block px-4 py-2 hover:bg-slate-50">Links curtos</a>
+                    <a href="{% url 'core:church_network_list' %}" class="block px-4 py-2 hover:bg-slate-50">Rede de igrejas</a>
                     <a href="{% url 'core:settings' %}" class="block px-4 py-2 hover:bg-slate-50 border-t border-slate-100">Configurações</a>
                 </div>
             </div>
+            {% if request.user.church and request.user.church.filiais.exists %}
+            <div class="relative">
+                <button type="button"
+                        onclick="document.getElementById('nav-unidade').classList.toggle('hidden'); event.stopPropagation();"
+                        class="text-white/85 hover:text-white flex items-center gap-1">
+                    Unidade: {{ request.church.name|truncatechars:18 }}
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                </button>
+                <div id="nav-unidade" class="hidden absolute right-0 mt-2 w-56 bg-white border border-slate-200 rounded-lg shadow-lg py-1 z-10 text-slate-700">
+                    <form method="post" action="{% url 'core:switch_church' %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="church_id" value="{{ request.user.church.pk }}">
+                        <button type="submit" class="w-full text-left block px-4 py-2 hover:bg-slate-50 {% if request.church.pk == request.user.church.pk %}font-semibold{% endif %}">{{ request.user.church.name }} (matriz)</button>
+                    </form>
+                    {% for filial in request.user.church.filiais.all %}
+                    <form method="post" action="{% url 'core:switch_church' %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="church_id" value="{{ filial.pk }}">
+                        <button type="submit" class="w-full text-left block px-4 py-2 hover:bg-slate-50 {% if request.church.pk == filial.pk %}font-semibold{% endif %}">{{ filial.name }}</button>
+                    </form>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
             {% elif user.can_manage_people %}
             {# Líder de Departamento escopado — só os recursos do próprio departamento. #}
             <a href="{% url 'people:list' %}" class="text-white/85 hover:text-white">Pessoas</a>
@@ -143,7 +170,25 @@
         <a href="{% url 'notifications:queue' %}" class="block text-white/85 hover:text-white">Mensagens</a>
         <a href="{% url 'custom_forms:list' %}" class="block text-white/85 hover:text-white">Formulários</a>
         <a href="{% url 'core:shortlink_list' %}" class="block text-white/85 hover:text-white">Links curtos</a>
+        <a href="{% url 'core:church_network_list' %}" class="block text-white/85 hover:text-white">Rede de igrejas</a>
         <a href="{% url 'core:settings' %}" class="block text-white/85 hover:text-white">Configurações</a>
+        {% if request.user.church and request.user.church.filiais.exists %}
+        <div class="border-t border-white/20 pt-3">
+            <p class="text-xs text-white/60 mb-1">Unidade ativa: {{ request.church.name }}</p>
+            <form method="post" action="{% url 'core:switch_church' %}" class="inline">
+                {% csrf_token %}
+                <input type="hidden" name="church_id" value="{{ request.user.church.pk }}">
+                <button type="submit" class="block text-white/85 hover:text-white py-1">{{ request.user.church.name }} (matriz)</button>
+            </form>
+            {% for filial in request.user.church.filiais.all %}
+            <form method="post" action="{% url 'core:switch_church' %}" class="inline">
+                {% csrf_token %}
+                <input type="hidden" name="church_id" value="{{ filial.pk }}">
+                <button type="submit" class="block text-white/85 hover:text-white py-1">{{ filial.name }}</button>
+            </form>
+            {% endfor %}
+        </div>
+        {% endif %}
         {% elif user.can_manage_people %}
         {# Líder de Departamento escopado. #}
         <a href="{% url 'people:list' %}" class="block text-white/85 hover:text-white">Pessoas</a>

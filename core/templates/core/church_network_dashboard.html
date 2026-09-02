@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Relatório consolidado{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold text-slate-900 mb-1">Relatório consolidado da rede</h1>
+<p class="text-sm text-slate-500 mb-6">Soma de todas as unidades — matriz e filiais.</p>
+
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+    <div class="bg-white border border-slate-200 rounded-xl p-4">
+        <p class="text-xs text-slate-500">Total de pessoas na rede</p>
+        <p class="text-2xl font-bold text-slate-900">{{ total_pessoas }}</p>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4">
+        <p class="text-xs text-slate-500">Receita da rede este mês</p>
+        <p class="text-2xl font-bold text-slate-900">R$ {{ total_receita_mes }}</p>
+    </div>
+</div>
+
+<div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr>
+                <th class="text-left px-4 py-3">Unidade</th>
+                <th class="text-left px-4 py-3">Pessoas</th>
+                <th class="text-left px-4 py-3">Receita do mês</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+            {% for linha in linhas %}
+            <tr class="hover:bg-slate-50">
+                <td class="px-4 py-3 font-medium text-slate-800">{{ linha.church.name }}{% if not linha.church.matriz_id %} <span class="text-xs text-slate-400">(matriz)</span>{% endif %}</td>
+                <td class="px-4 py-3 text-slate-600">{{ linha.pessoas }}</td>
+                <td class="px-4 py-3 text-slate-600">R$ {{ linha.receita_mes }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+<a href="{% url 'core:church_network_list' %}" class="inline-block mt-4 text-sm text-slate-500 hover:text-slate-800">← Rede de igrejas</a>
+{% endblock %}

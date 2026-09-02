@@ -499,6 +499,71 @@ class TestRateLimit:
         assert response.status_code == 302
 
 
+@pytest.mark.django_db
+class TestMultiCampus:
+    def test_pastor_creates_filial(self, pastor_client, church):
+        response = pastor_client.post("/rede/nova/", {
+            "church_name": "Congregação Bairro Novo", "pastor_name": "Pr. João",
+            "username": "pr-joao-filial", "email": "joao@example.com", "password": "senhaSegura123",
+        })
+        assert response.status_code == 302
+        from core.models import Church
+        filial = Church.objects.get(name="Congregação Bairro Novo")
+        assert filial.matriz_id == church.pk
+        assert filial.status == Church.Status.TRIAL
+
+        from accounts.models import User
+        novo_user = User.objects.get(username="pr-joao-filial")
+        assert novo_user.church_id == filial.pk
+        assert novo_user.role == User.Role.PASTOR
+
+    def test_member_cannot_create_filial(self, member_client):
+        assert member_client.get("/rede/nova/").status_code == 403
+
+    def test_switching_to_filial_isolates_data(self, pastor_client, pastor_user, church):
+        from core.models import Church
+        from people.models import Person
+
+        filial = Church.objects.create(name="Filial", matriz=church, email_confirmed=True, status=Church.Status.TRIAL)
+        Person.objects.create(church=filial, full_name="Pessoa da Filial")
+        Person.objects.create(church=church, full_name="Pessoa da Matriz")
+
+        # Ainda na matriz — só vê a pessoa da matriz.
+        response = pastor_client.get("/pessoas/")
+        assert b"Pessoa da Matriz" in response.content
+        assert b"Pessoa da Filial" not in response.content
+
+        pastor_client.post("/trocar-unidade/", {"church_id": filial.pk})
+        response = pastor_client.get("/pessoas/")
+        assert b"Pessoa da Filial" in response.content
+        assert b"Pessoa da Matriz" not in response.content
+
+        # Volta pra matriz.
+        pastor_client.post("/trocar-unidade/", {"church_id": church.pk})
+        response = pastor_client.get("/pessoas/")
+        assert b"Pessoa da Matriz" in response.content
+
+    def test_cannot_switch_to_unrelated_church(self, pastor_client, outra_church):
+        response = pastor_client.post("/trocar-unidade/", {"church_id": outra_church.pk})
+        assert response.status_code == 302
+        # A sessão não deve ter sido trocada pra uma igreja alheia.
+        session = pastor_client.session
+        assert session.get("active_church_id") != outra_church.pk
+
+    def test_consolidated_dashboard_sums_network(self, pastor_client, church):
+        from core.models import Church
+        from people.models import Person
+
+        filial = Church.objects.create(name="Filial", matriz=church, email_confirmed=True, status=Church.Status.TRIAL)
+        Person.objects.create(church=church, full_name="Da Matriz")
+        Person.objects.create(church=filial, full_name="Da Filial 1")
+        Person.objects.create(church=filial, full_name="Da Filial 2")
+
+        response = pastor_client.get("/rede/consolidado/")
+        assert response.status_code == 200
+        assert response.context["total_pessoas"] == 3
+
+
 class TestMediaUrl:
     def test_media_url_is_absolute(self, settings):
         """Regressão: `MEDIA_URL` sem barra no início ("media/" em vez de

@@ -204,6 +204,28 @@ class Church(models.Model):
                    "execução do cron enquanto a mesma queda continua; zera sozinho quando reconectar.",
     )
 
+    matriz = models.ForeignKey(
+        "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="filiais",
+        verbose_name="Igreja-mãe",
+        help_text="Em branco = é uma matriz (ou igreja independente). Preenchido = é filial dessa igreja — "
+                   "compartilha o seletor de unidade no menu, mas `status`/`plano` continuam por conta própria "
+                   "(sem cobrança automática por filial; ajuste manual pelo dono da plataforma se for o caso).",
+    )
+    email_batch_size = models.PositiveIntegerField(
+        "Lote de e-mail por execução", default=50,
+        help_text="Quantos e-mails de campanha a fila manda por vez — evita estourar a cota do provedor SMTP.",
+    )
+    # `null=True` numa `CharField`, deliberado por exceção aqui: com
+    # `unique=True` e SEM `null`, todo mundo sem chave gerada teria o
+    # mesmo valor "" e a segunda igreja a salvar quebraria a constraint
+    # — `NULL` é o único jeito de "várias linhas sem valor" conviver com
+    # unicidade no banco.
+    api_key = models.CharField(
+        "Chave da API", max_length=64, blank=True, unique=True, null=True,
+        help_text="Gerada em Configurações — usada por integrações externas (API de leitura) via "
+                   "cabeçalho Authorization: Bearer <chave>.",
+    )
+
     created_at = models.DateTimeField("Criada em", auto_now_add=True)
 
     class Meta:

@@ -39,7 +39,17 @@ class TenantMiddleware:
     numa pequena allowlist de caminhos que precisam continuar
     acessíveis (login/logout, a própria tela de assinatura/suspensa,
     admin, estáticos/mídia) — sem isso ninguém suspenso conseguiria nem
-    ver POR QUE foi bloqueado, nem assinar um plano pra se desbloquear."""
+    ver POR QUE foi bloqueado, nem assinar um plano pra se desbloquear.
+
+    **Troca de unidade (multi-campus, Fase 5)**: se a sessão tiver
+    `active_church_id` (setado por `core.views.SwitchChurchView`) E esse
+    id for de uma FILIAL da igreja de verdade do usuário
+    (`Church.matriz == user.church`), o tenant da requisição vira essa
+    filial em vez de `user.church` — dá pro pastor da matriz "entrar" no
+    workspace de uma filial inteira (mesmos mixins de permissão, que
+    checam `request.user`, não `request.church`, continuam valendo).
+    `status`/`plano` continuam por linha — a igreja ativa (matriz OU
+    filial) é bloqueada pelo PRÓPRIO `esta_bloqueada`, sem herança."""
 
     _ALLOWLIST_PREFIXES = (
         "/accounts/", "/assinatura/", "/admin/", "/static/", "/media/",
@@ -51,7 +61,21 @@ class TenantMiddleware:
 
     def __call__(self, request):
         user = getattr(request, "user", None)
-        church = getattr(user, "church", None) if user is not None and user.is_authenticated else None
+        base_church = getattr(user, "church", None) if user is not None and user.is_authenticated else None
+        church = base_church
+
+        if base_church is not None:
+            active_id = request.session.get("active_church_id")
+            if active_id and active_id != base_church.pk:
+                from core.models import Church
+                filial = Church.objects.filter(pk=active_id, matriz_id=base_church.pk).first()
+                if filial is not None:
+                    church = filial
+                else:
+                    # Sessão apontando pra algo que não é (mais) filial
+                    # dessa matriz — limpa em vez de deixar travado.
+                    request.session.pop("active_church_id", None)
+
         request.church = church
         set_current_church(church)
         try:

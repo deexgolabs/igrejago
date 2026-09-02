@@ -11,7 +11,7 @@ from django.contrib.auth import login as auth_login
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.mail import send_mail
 from django.core.management import call_command
-from django.db.models import Count, F, Q
+from django.db.models import Count, F, Q, Sum
 from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
@@ -896,3 +896,101 @@ class ShortLinkDeleteView(IsChurchManagerMixin, DeleteView):
     def form_valid(self, form):
         messages.success(self.request, "Link curto removido.")
         return super().form_valid(form)
+
+
+class SwitchChurchView(LoginRequiredMixin, View):
+    """Troca a UNIDADE ativa (matriz ↔ filial) pra quem administra uma
+    rede de igrejas — grava `active_church_id` na sessão, lido por
+    `core.middleware.TenantMiddleware` a cada request daqui pra frente.
+    Só aceita a própria igreja do usuário ou uma filial DELA — nunca uma
+    igreja arbitrária (evita virar um jeito de "invadir" outro tenant)."""
+
+    def post(self, request):
+        user_church = request.user.church
+        if user_church is None:
+            return redirect("core:dashboard")
+        try:
+            target_id = int(request.POST.get("church_id", ""))
+        except ValueError:
+            messages.error(request, "Unidade inválida.")
+            return redirect("core:dashboard")
+
+        if target_id == user_church.pk:
+            request.session.pop("active_church_id", None)
+        elif Church.objects.filter(pk=target_id, matriz_id=user_church.pk).exists():
+            request.session["active_church_id"] = target_id
+        else:
+            messages.error(request, "Você não tem acesso a essa unidade.")
+        return redirect("core:dashboard")
+
+
+class ChurchNetworkListView(IsChurchManagerMixin, View):
+    """Lista as filiais da PRÓPRIA igreja do usuário (`request.user.church`
+    — não `request.church`, que pode estar trocado pra dentro de uma
+    filial no momento; a rede em si é sempre vista a partir da matriz)."""
+
+    template_name = "core/church_network_list.html"
+
+    def get(self, request):
+        matriz = request.user.church
+        filiais = matriz.filiais.all() if matriz else Church.objects.none()
+        return render(request, self.template_name, {"matriz": matriz, "filiais": filiais})
+
+
+class ChurchNetworkCreateView(IsChurchManagerMixin, View):
+    """Cria uma filial nova — reaproveita `ChurchSignupForm` (mesmo
+    formulário do cadastro público de igreja), só passando `matriz=` na
+    hora de salvar. Cria a igreja E o primeiro usuário (Pastor) dela
+    numa tacada só, sem o e-mail de confirmação do fluxo público (quem
+    está criando já está autenticado e sabe o que está fazendo)."""
+
+    template_name = "core/church_network_form.html"
+
+    def get(self, request):
+        return render(request, self.template_name, {"form": ChurchSignupForm()})
+
+    def post(self, request):
+        form = ChurchSignupForm(request.POST)
+        if form.is_valid():
+            filial, user = form.save(matriz=request.user.church)
+            messages.success(
+                request,
+                f'Filial "{filial.name}" criada — peça pro responsável entrar com o usuário '
+                f'"{user.username}" e a senha cadastrada.',
+            )
+            return redirect("core:church_network_list")
+        return render(request, self.template_name, {"form": form})
+
+
+class ChurchNetworkDashboardView(IsChurchManagerMixin, View):
+    """Relatório consolidado da rede (matriz + filiais) — pessoas e
+    receita do mês, somadas. Usa `todas_as_igrejas` DELIBERADAMENTE (não
+    `Model.objects`, que filtraria só pela igreja atual): é exatamente o
+    caso de "relatório cross-tenant intencional" que
+    `core.tenancy.TenantManager` documenta como motivo válido pra usar o
+    manager sem filtro, fora do padrão normal de código autenticado."""
+
+    template_name = "core/church_network_dashboard.html"
+
+    def get(self, request):
+        from finance.models import Transaction
+        from people.models import Person
+
+        matriz = request.user.church
+        rede = [matriz] + list(matriz.filiais.all()) if matriz else []
+        hoje = timezone.now().date()
+
+        linhas = []
+        for church in rede:
+            pessoas = Person.todas_as_igrejas.filter(church=church).count()
+            receita_mes = Transaction.todas_as_igrejas.filter(
+                church=church, type="INCOME", date__year=hoje.year, date__month=hoje.month,
+            ).aggregate(total=Sum("amount"))["total"] or 0
+            linhas.append({"church": church, "pessoas": pessoas, "receita_mes": receita_mes})
+
+        context = {
+            "linhas": linhas,
+            "total_pessoas": sum(linha["pessoas"] for linha in linhas),
+            "total_receita_mes": sum(linha["receita_mes"] for linha in linhas),
+        }
+        return render(request, self.template_name, context)
