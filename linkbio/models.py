@@ -34,11 +34,24 @@ class BioPage(TenantModel):
         return reverse("linkbio_public:page", args=[self.church.slug, self.slug])
 
     @property
+    def short_link(self):
+        """`ShortLink` apontando pra esta página, se algum pastor/secretaria
+        já criou um (ver `core.ShortLink` — atalho "criar link curto" em
+        `linkbio/manage.html`). `None` quando ainda não existe."""
+        from core.models import ShortLink
+
+        return ShortLink.objects.filter(target_path=self.get_absolute_url()).first()
+
+    @property
     def public_url(self):
-        """URL pública completa mostrada em "Link na Bio" — com o domínio
-        espelho (`PUBLIC_LINK_DOMAIN`, ex.: igrejago.link) quando
-        configurado; em branco (dev, sem domínio espelho), continua só o
-        caminho relativo de sempre."""
+        """URL pública completa mostrada em "Link na Bio" — usa o link
+        curto (`igrejago.link/<slug>`) se um `ShortLink` já foi criado
+        apontando pra esta página; senão cai pro domínio espelho
+        (`PUBLIC_LINK_DOMAIN`) longo de sempre; em branco (dev, sem
+        domínio espelho), continua só o caminho relativo."""
+        short = self.short_link
+        if short:
+            return short.full_url
         path = self.get_absolute_url()
         return f"{settings.PUBLIC_LINK_DOMAIN}{path}" if settings.PUBLIC_LINK_DOMAIN else path
 

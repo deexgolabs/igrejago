@@ -11,22 +11,23 @@ from django.contrib.auth import login as auth_login
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.mail import send_mail
 from django.core.management import call_command
-from django.db.models import Count, Q
+from django.db.models import Count, F, Q
 from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse
+from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
-from django.views.generic import ListView, TemplateView, View
+from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView, View
 
 from accounts.mixins import IsChurchManagerMixin, IsPlatformOwnerMixin
 from core.billing import PLANOS
-from core.forms import ChurchConfigForm, ChurchOverrideForm, ChurchSignupForm
+from core.forms import ChurchConfigForm, ChurchOverrideForm, ChurchSignupForm, ShortLinkForm
 from core.mercadopago_billing import consultar_assinatura, criar_assinatura
-from core.models import AuditLog, Church, DataDeletionRequest
+from core.models import AuditLog, Church, DataDeletionRequest, ShortLink
 from core.ratelimit import RateLimitMixin
 from core.reports import generate_general_report_pdf
+from core.tenancy import TenantFormMixin
 from core.tokens import gerar_token_confirmacao, verificar_token_confirmacao
 from people.models import Person
 
@@ -828,3 +829,70 @@ class GestaoCommandRunView(IsPlatformOwnerMixin, View):
             "ran_at": timezone.now().isoformat(),
         }
         return redirect("core:gestao_commands")
+
+
+def short_link_redirect(request, slug):
+    """Resolve `igrejago.link/<slug>` — rota PÚBLICA registrada por
+    ÚLTIMO em `core/urls.py` (só entra em jogo quando nada mais bateu
+    antes, nunca disputa com uma rota real). Usa `todas_as_igrejas`
+    (não `ShortLink.objects`) de propósito: aqui não tem igreja logada
+    nem slug de igreja na própria URL pra restringir o manager — é
+    assim mesmo pra uma página pública, ver `core.tenancy.TenantManager`.
+    `no-store`: o destino pode ser editado depois de criado, então o
+    redirect em si não pode ficar em cache (mesmo raciocínio dos PDFs
+    pessoais, ver `finance.views`)."""
+    link = get_object_or_404(ShortLink.todas_as_igrejas, slug=slug)
+    ShortLink.todas_as_igrejas.filter(pk=link.pk).update(click_count=F("click_count") + 1)
+    response = redirect(link.target_path)
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+class ShortLinkListView(IsChurchManagerMixin, ListView):
+    model = ShortLink
+    template_name = "core/shortlink_list.html"
+    context_object_name = "shortlinks"
+
+
+class ShortLinkCreateView(TenantFormMixin, IsChurchManagerMixin, CreateView):
+    """`?slug=&label=&target_path=` na URL pré-preenchem o formulário —
+    usado pelos atalhos "Criar link curto" de Link na Bio, Formulários e
+    Eventos, que já sabem o caminho de destino e só pedem confirmação/
+    ajuste do slug antes de gravar."""
+
+    model = ShortLink
+    form_class = ShortLinkForm
+    template_name = "core/shortlink_form.html"
+    success_url = reverse_lazy("core:shortlink_list")
+
+    def get_initial(self):
+        initial = super().get_initial()
+        for key in ("slug", "label", "target_path"):
+            if key in self.request.GET:
+                initial[key] = self.request.GET[key]
+        return initial
+
+    def form_valid(self, form):
+        messages.success(self.request, "Link curto criado.")
+        return super().form_valid(form)
+
+
+class ShortLinkUpdateView(IsChurchManagerMixin, UpdateView):
+    model = ShortLink
+    form_class = ShortLinkForm
+    template_name = "core/shortlink_form.html"
+    success_url = reverse_lazy("core:shortlink_list")
+
+    def form_valid(self, form):
+        messages.success(self.request, "Link curto atualizado.")
+        return super().form_valid(form)
+
+
+class ShortLinkDeleteView(IsChurchManagerMixin, DeleteView):
+    model = ShortLink
+    template_name = "core/shortlink_confirm_delete.html"
+    success_url = reverse_lazy("core:shortlink_list")
+
+    def form_valid(self, form):
+        messages.success(self.request, "Link curto removido.")
+        return super().form_valid(form)

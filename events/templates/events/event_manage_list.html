@@ -22,6 +22,12 @@
             <tr class="hover:bg-slate-50">
                 <td class="px-4 py-3 font-medium text-slate-800">
                     <a href="{% url 'events_public:detail' event.church.slug event.slug %}" class="hover:text-brand-700">{{ event.title }}</a>
+                    <br>
+                    {% if event.short_link %}
+                    <a href="{% url 'core:shortlink_update' event.short_link.pk %}" class="text-xs font-normal text-slate-400 hover:text-brand-700 hover:underline">editar link curto</a>
+                    {% else %}
+                    <a href="{% url 'core:shortlink_create' %}?label={{ event.title|urlencode }}&target_path={{ event.get_absolute_url|urlencode }}" class="text-xs font-normal text-slate-400 hover:text-brand-700 hover:underline">criar link curto</a>
+                    {% endif %}
                 </td>
                 <td class="px-4 py-3 text-slate-600">{{ event.start_datetime|date:"d/m/Y H:i" }}</td>
                 <td class="px-4 py-3 text-slate-600">{{ event.get_status_display }}</td>

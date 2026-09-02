@@ -71,6 +71,7 @@
                     <a href="{% url 'escalas:calendario' %}" class="block px-4 py-2 hover:bg-slate-50">Escalas</a>
                     <a href="{% url 'sermons:list' %}" class="block px-4 py-2 hover:bg-slate-50">Sermões</a>
                     <a href="{% url 'custom_forms:list' %}" class="block px-4 py-2 hover:bg-slate-50">Formulários</a>
+                    <a href="{% url 'core:shortlink_list' %}" class="block px-4 py-2 hover:bg-slate-50">Links curtos</a>
                     <a href="{% url 'core:settings' %}" class="block px-4 py-2 hover:bg-slate-50 border-t border-slate-100">Configurações</a>
                 </div>
             </div>
@@ -139,6 +140,7 @@
         <a href="{% url 'sermons:list' %}" class="block text-white/85 hover:text-white">Sermões</a>
         <a href="{% url 'notifications:queue' %}" class="block text-white/85 hover:text-white">Mensagens</a>
         <a href="{% url 'custom_forms:list' %}" class="block text-white/85 hover:text-white">Formulários</a>
+        <a href="{% url 'core:shortlink_list' %}" class="block text-white/85 hover:text-white">Links curtos</a>
         <a href="{% url 'core:settings' %}" class="block text-white/85 hover:text-white">Configurações</a>
         {% elif user.can_manage_people %}
         {# Líder de Departamento escopado. #}

@@ -85,6 +85,29 @@ class Event(TenantModel):
         return reverse("events_public:detail", args=[self.church.slug, self.slug])
 
     @property
+    def short_link(self):
+        """`ShortLink` apontando pra este evento, se já criado — ver
+        `core.ShortLink` e o atalho "criar link curto" na lista de
+        eventos. `None` quando ainda não existe."""
+        from core.models import ShortLink
+
+        return ShortLink.objects.filter(target_path=self.get_absolute_url()).first()
+
+    @property
+    def public_url(self):
+        """URL pública completa — usa o link curto (`igrejago.link/<slug>`)
+        se um `ShortLink` já foi criado apontando pra este evento, senão
+        cai pro domínio espelho longo/caminho relativo de sempre (mesmo
+        padrão de `linkbio.BioPage.public_url`/`custom_forms.CustomForm.public_url`)."""
+        from django.conf import settings
+
+        short = self.short_link
+        if short:
+            return short.full_url
+        path = self.get_absolute_url()
+        return f"{settings.PUBLIC_LINK_DOMAIN}{path}" if settings.PUBLIC_LINK_DOMAIN else path
+
+    @property
     def is_full(self):
         if self.capacity is None:
             return False

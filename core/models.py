@@ -276,3 +276,46 @@ class Church(models.Model):
         já conectada — a da instância, se existir, senão cai pra chave
         global da plataforma."""
         return self.whatsapp_instance_token or settings.EVOLUTION_API_KEY
+
+
+class ShortLink(TenantModel):
+    """Link curto (`igrejago.link/<slug>`) — dá um endereço curto e
+    PERSONALIZÁVEL pra qualquer página pública (bio, formulário, evento
+    etc.), resolvido por `core.views.short_link_redirect`, registrado por
+    ÚLTIMO nas rotas da raiz (`church_crm/urls.py`) — só entra em jogo
+    quando nenhuma rota real do sistema bateu antes, então nunca disputa
+    com elas. Ao contrário do resto do projeto, `slug` é único NO SISTEMA
+    INTEIRO (não por igreja): o domínio curto não carrega o slug da
+    igreja no caminho, só um único segmento — por isso é um
+    `unique=True` de campo, não a `UniqueConstraint(["church", "slug"])`
+    de sempre."""
+
+    slug = models.SlugField(
+        "Link personalizado", max_length=60, unique=True,
+        help_text="A parte depois de igrejago.link/ — só letras, números e hífen.",
+    )
+    label = models.CharField(
+        "Identificação", max_length=150,
+        help_text='Só pra você reconhecer na lista (ex.: "Link da Bio", "Inscrição Batismo").',
+    )
+    target_path = models.CharField(
+        "Destino", max_length=300,
+        help_text="Caminho ou link completo pra onde esse link curto deve levar.",
+    )
+    created_at = models.DateTimeField("Criado em", auto_now_add=True)
+    click_count = models.PositiveIntegerField("Cliques", default=0, editable=False)
+
+    class Meta:
+        verbose_name = "Link curto"
+        verbose_name_plural = "Links curtos"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.slug
+
+    @property
+    def full_url(self):
+        """URL curta completa (com o domínio espelho `igrejago.link`,
+        quando configurado — mesmo padrão de `linkbio.BioPage.public_url`)."""
+        domain = settings.PUBLIC_LINK_DOMAIN
+        return f"{domain}/{self.slug}" if domain else f"/{self.slug}"

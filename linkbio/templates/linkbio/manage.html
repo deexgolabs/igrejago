@@ -8,6 +8,11 @@
         <h2 class="text-sm font-semibold text-slate-700 mb-4">Página pública</h2>
         <p class="text-xs text-slate-400 mb-4">
             URL pública: <a href="{{ page.public_url }}" target="_blank" class="text-brand-700 hover:underline">{{ page.public_url }}</a>
+            {% if page.short_link %}
+            · <a href="{% url 'core:shortlink_update' page.short_link.pk %}" class="text-slate-500 hover:text-brand-700">editar link curto</a>
+            {% else %}
+            · <a href="{% url 'core:shortlink_create' %}?slug={{ church_config.slug }}&label=Link+da+Bio&target_path={{ page.get_absolute_url|urlencode }}" class="text-slate-500 hover:text-brand-700">criar link curto</a>
+            {% endif %}
         </p>
         <form method="post" enctype="multipart/form-data" class="form-padrao space-y-3">
             {% csrf_token %}

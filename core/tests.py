@@ -508,3 +508,127 @@ class TestMediaUrl:
         em qualquer rota aninhada (ex.: /mensagens/). Achado ao investigar
         um relato real de "logo ficou quebrada"."""
         assert settings.MEDIA_URL.startswith("/")
+
+
+@pytest.mark.django_db
+class TestShortLinkRedirect:
+    def test_redirects_to_target_path(self, client, church):
+        from core.models import ShortLink
+
+        ShortLink.objects.create(
+            church=church, slug="esperanca-pontal-sul", label="Link da Bio",
+            target_path="/esperanca-pontal-sul/links/links/",
+        )
+        response = client.get("/esperanca-pontal-sul/")
+        assert response.status_code == 302
+        assert response.url == "/esperanca-pontal-sul/links/links/"
+        assert response["Cache-Control"] == "no-store"
+
+    def test_increments_click_count(self, client, church):
+        from core.models import ShortLink
+
+        link = ShortLink.objects.create(
+            church=church, slug="batismo", label="Inscrição", target_path="/x/formularios/batismo/",
+        )
+        client.get("/batismo/")
+        client.get("/batismo/")
+        link.refresh_from_db()
+        assert link.click_count == 2
+
+    def test_unknown_slug_is_404(self, client):
+        response = client.get("/nao-existe-esse-link/")
+        assert response.status_code == 404
+
+    def test_works_for_anonymous_visitor_regardless_of_church(self, client, church, outra_church):
+        """O redirect não depende de igreja logada/atual — é resolvido
+        só pelo slug, igual uma página pública comum (ver
+        `core.tenancy.TenantManager`, `todas_as_igrejas`)."""
+        from core.models import ShortLink
+
+        ShortLink.objects.create(
+            church=outra_church, slug="outra-igreja", label="Bio", target_path="/outra/links/links/",
+        )
+        response = client.get("/outra-igreja/")
+        assert response.status_code == 302
+        assert response.url == "/outra/links/links/"
+
+
+@pytest.mark.django_db
+class TestShortLinkManagement:
+    def test_pastor_can_create_short_link(self, pastor_client, church):
+        response = pastor_client.post("/links-curtos/novo/", {
+            "slug": "meu-link", "label": "Teste", "target_path": "/algum/caminho/",
+        })
+        assert response.status_code == 302
+        from core.models import ShortLink
+        link = ShortLink.objects.get(slug="meu-link")
+        assert link.church_id == church.id
+        assert link.target_path == "/algum/caminho/"
+
+    def test_member_cannot_manage_short_links(self, member_client):
+        assert member_client.get("/links-curtos/").status_code == 403
+        assert member_client.post("/links-curtos/novo/", {
+            "slug": "x", "label": "x", "target_path": "/x/",
+        }).status_code == 403
+
+    def test_department_leader_cannot_manage_short_links(self, department_leader_client):
+        """Links curtos são infraestrutura da igreja inteira (domínio
+        curto compartilhado) — mesmo escopo de `IsChurchManagerMixin`
+        usado em Configurações/Eventos/Financeiro, não o de
+        `CanManagePeopleMixin` (Líder de Departamento)."""
+        assert department_leader_client.get("/links-curtos/").status_code == 403
+
+    def test_reserved_slug_is_rejected(self, pastor_client):
+        response = pastor_client.post("/links-curtos/novo/", {
+            "slug": "admin", "label": "Tentativa", "target_path": "/x/",
+        })
+        assert response.status_code == 200  # re-renderiza o form com erro
+        from core.models import ShortLink
+        assert not ShortLink.objects.filter(slug="admin").exists()
+
+    def test_slug_must_be_globally_unique(self, pastor_client, church):
+        from core.models import ShortLink
+
+        ShortLink.objects.create(church=church, slug="ocupado", label="Já existe", target_path="/a/")
+        response = pastor_client.post("/links-curtos/novo/", {
+            "slug": "ocupado", "label": "Duplicado", "target_path": "/b/",
+        })
+        assert response.status_code == 200
+        assert ShortLink.objects.filter(slug="ocupado").count() == 1
+
+    def test_pasting_a_full_url_keeps_only_the_path(self, pastor_client):
+        """`target_path` aceita colar a URL completa (ex.: copiada da
+        barra de endereço) — só o caminho é gravado, nunca o domínio."""
+        response = pastor_client.post("/links-curtos/novo/", {
+            "slug": "colado", "label": "Colado",
+            "target_path": "https://churchcrm.redecorp.co/esperanca-pontal-sul/links/links/",
+        })
+        assert response.status_code == 302
+        from core.models import ShortLink
+        link = ShortLink.objects.get(slug="colado")
+        assert link.target_path == "/esperanca-pontal-sul/links/links/"
+
+    def test_pastor_can_delete_short_link(self, pastor_client, church):
+        from core.models import ShortLink
+
+        link = ShortLink.objects.create(church=church, slug="apagar", label="X", target_path="/x/")
+        response = pastor_client.post(f"/links-curtos/{link.pk}/excluir/")
+        assert response.status_code == 302
+        assert not ShortLink.objects.filter(pk=link.pk).exists()
+
+
+@pytest.mark.django_db
+class TestPublicUrlUsesShortLinkWhenAvailable:
+    def test_biopage_public_url_prefers_short_link(self, church, settings):
+        from core.models import ShortLink
+        from linkbio.models import BioPage
+
+        settings.PUBLIC_LINK_DOMAIN = "https://igrejago.link"
+        page = BioPage.objects.create(church=church, church_name=church.name)
+        long_url = f"https://igrejago.link{page.get_absolute_url()}"
+        assert page.public_url == long_url
+
+        ShortLink.objects.create(
+            church=church, slug="minha-igreja", label="Bio", target_path=page.get_absolute_url(),
+        )
+        assert page.public_url == "https://igrejago.link/minha-igreja"

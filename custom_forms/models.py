@@ -89,11 +89,25 @@ class CustomForm(TenantModel):
         return reverse("custom_forms_public:public", args=[self.church.slug, self.slug])
 
     @property
+    def short_link(self):
+        """`ShortLink` apontando pra este formulário, se já criado — ver
+        `core.ShortLink` e o atalho "criar link curto" na lista de
+        formulários. `None` quando ainda não existe."""
+        from core.models import ShortLink
+
+        return ShortLink.objects.filter(target_path=self.get_absolute_url()).first()
+
+    @property
     def public_url(self):
-        """URL pública completa mostrada na lista de formulários — com o
-        domínio espelho (`PUBLIC_LINK_DOMAIN`, ex.: igrejago.link) quando
-        configurado; em branco (dev, sem domínio espelho), continua só o
-        caminho relativo de sempre (mesmo padrão de `linkbio.BioPage`)."""
+        """URL pública completa mostrada na lista de formulários — usa o
+        link curto (`igrejago.link/<slug>`) se um `ShortLink` já foi
+        criado apontando pra este formulário; senão cai pro domínio
+        espelho (`PUBLIC_LINK_DOMAIN`) longo de sempre; em branco (dev,
+        sem domínio espelho), continua só o caminho relativo (mesmo
+        padrão de `linkbio.BioPage`)."""
+        short = self.short_link
+        if short:
+            return short.full_url
         path = self.get_absolute_url()
         return f"{settings.PUBLIC_LINK_DOMAIN}{path}" if settings.PUBLIC_LINK_DOMAIN else path
 

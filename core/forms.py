@@ -1,8 +1,10 @@
+from urllib.parse import urlparse
+
 from django import forms
 from django.contrib.auth import password_validation
 
 from accounts.models import User
-from core.models import Church
+from core.models import Church, ShortLink
 
 
 class ChurchConfigForm(forms.ModelForm):
@@ -98,3 +100,51 @@ class ChurchSignupForm(forms.Form):
                 church=church,
             )
         return church, user
+
+
+# Primeiro segmento de toda rota já registrada na raiz do site
+# (`church_crm/urls.py` + `core/urls.py`) — mantida à mão de propósito
+# (não dá pra descobrir isso em runtime sem já ter registrado o próprio
+# catch-all do link curto, o que inverteria o problema). Escolher um
+# desses como slug personalizado não quebra nada — o link curto só fica
+# "morto" (a rota de verdade sempre bate primeiro) — mas é confuso pra
+# quem criou, então bloqueamos aqui com uma mensagem clara. Atualize esta
+# lista se um app novo ganhar uma rota na raiz.
+RESERVED_SLUGS = {
+    "admin", "accounts", "pessoas", "eventos", "links", "financeiro",
+    "celulas", "mensagens", "formularios", "checkin", "escalas", "sermoes",
+    "health", "manifest.json", "sw.js", "relatorio.pdf", "configuracoes",
+    "manual", "auditoria", "cadastro-igreja", "conta-suspensa", "privacidade",
+    "meus-dados", "assinatura", "gestao", "links-curtos", "static", "media",
+    "favicon.ico",
+}
+
+
+class ShortLinkForm(forms.ModelForm):
+    """Cadastro/edição de um `ShortLink` (`core.SettingsView`/lista de
+    links curtos, e atalhos pré-preenchidos a partir de Formulários,
+    Eventos e Link na Bio). `target_path` aceita colar tanto um caminho
+    (`/esperanca-pontal-sul/links/links/`) quanto uma URL completa (com
+    `churchcrm.redecorp.co` ou `igrejago.link` na frente) — `clean_target_path`
+    corta o domínio se vier junto, pra nunca gravar um domínio errado."""
+
+    class Meta:
+        model = ShortLink
+        fields = ["slug", "label", "target_path"]
+
+    def clean_slug(self):
+        slug = self.cleaned_data["slug"].lower()
+        if slug in RESERVED_SLUGS:
+            raise forms.ValidationError("Esse nome é reservado pelo sistema — escolha outro.")
+        return slug
+
+    def clean_target_path(self):
+        value = self.cleaned_data["target_path"].strip()
+        parsed = urlparse(value)
+        if parsed.scheme and parsed.netloc:
+            value = parsed.path or "/"
+            if parsed.query:
+                value = f"{value}?{parsed.query}"
+        if not value.startswith("/"):
+            value = f"/{value}"
+        return value

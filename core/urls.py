@@ -24,10 +24,15 @@ from core.views import (
     MeusDadosView,
     PrivacyPolicyView,
     SettingsView,
+    ShortLinkCreateView,
+    ShortLinkDeleteView,
+    ShortLinkListView,
+    ShortLinkUpdateView,
     SolicitarExclusaoView,
     health_check,
     manifest_json,
     service_worker_js,
+    short_link_redirect,
 )
 
 app_name = "core"
@@ -67,5 +72,17 @@ urlpatterns = [
         GestaoCommandRunView.as_view(),
         name="gestao_command_run",
     ),
+    path("links-curtos/", ShortLinkListView.as_view(), name="shortlink_list"),
+    path("links-curtos/novo/", ShortLinkCreateView.as_view(), name="shortlink_create"),
+    path("links-curtos/<int:pk>/editar/", ShortLinkUpdateView.as_view(), name="shortlink_update"),
+    path("links-curtos/<int:pk>/excluir/", ShortLinkDeleteView.as_view(), name="shortlink_delete"),
     path("", DashboardView.as_view(), name="dashboard"),
+
+    # Catch-all do link curto (`igrejago.link/<slug>`) — TEM que ser a
+    # ÚLTIMA rota da lista: só entra em jogo quando nenhuma rota real do
+    # sistema bateu antes (Django tenta as rotas nesta ordem, de cima pra
+    # baixo). Qualquer rota nova adicionada ACIMA continua funcionando
+    # normal; uma adicionada por engano ABAIXO desta linha nunca seria
+    # alcançada.
+    path("<slug:slug>/", short_link_redirect, name="short_link_redirect"),
 ]

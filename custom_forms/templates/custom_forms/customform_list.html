@@ -39,6 +39,11 @@
                        class="block text-xs font-normal text-slate-400 hover:text-brand-700 hover:underline truncate max-w-xs">
                         {{ custom_form.public_url }}
                     </a>
+                    {% if custom_form.short_link %}
+                    <a href="{% url 'core:shortlink_update' custom_form.short_link.pk %}" class="text-xs font-normal text-slate-400 hover:text-brand-700 hover:underline">editar link curto</a>
+                    {% else %}
+                    <a href="{% url 'core:shortlink_create' %}?label={{ custom_form.title|urlencode }}&target_path={{ custom_form.get_absolute_url|urlencode }}" class="text-xs font-normal text-slate-400 hover:text-brand-700 hover:underline">criar link curto</a>
+                    {% endif %}
                 </td>
                 <td class="px-4 py-3">
                     {% if custom_form.is_active %}
