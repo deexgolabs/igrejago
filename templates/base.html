@@ -36,34 +36,34 @@
 <body class="bg-slate-50 text-slate-800">
 
 {% if user.is_authenticated %}
-<nav class="bg-white border-b border-slate-200 relative">
+<nav class="relative text-white" style="background:{{ paleta_marca.600 }}">
     <div class="max-w-6xl mx-auto px-4 flex items-center justify-between h-14">
-        <a href="{% url 'core:dashboard' %}" class="font-bold text-brand-700 flex items-center gap-2">
-            {% if church_config.logo %}<img src="{{ church_config.logo.url }}" class="h-7 w-7 rounded object-cover">{% endif %}
+        <a href="{% url 'core:dashboard' %}" class="font-bold text-white flex items-center gap-2">
+            {% if church_config.logo %}<img src="{{ church_config.logo.url }}" class="h-7 w-7 rounded object-cover bg-white/20">{% endif %}
             {{ church_config.name|default:"Church CRM" }}
         </a>
 
         <div class="hidden md:flex items-center gap-4 text-sm">
-            <a href="{% url 'core:dashboard' %}" class="hover:text-brand-700">Dashboard</a>
+            <a href="{% url 'core:dashboard' %}" class="text-white/85 hover:text-white">Dashboard</a>
             {% if user.is_platform_owner %}
-            <a href="{% url 'core:gestao_dashboard' %}" class="hover:text-brand-700">Painel</a>
-            <a href="{% url 'core:gestao_church_list' %}" class="hover:text-brand-700">Igrejas</a>
-            <a href="{% url 'core:gestao_commands' %}" class="hover:text-brand-700">Comandos</a>
+            <a href="{% url 'core:gestao_dashboard' %}" class="text-white/85 hover:text-white">Painel</a>
+            <a href="{% url 'core:gestao_church_list' %}" class="text-white/85 hover:text-white">Igrejas</a>
+            <a href="{% url 'core:gestao_commands' %}" class="text-white/85 hover:text-white">Comandos</a>
             {% elif user.can_manage_people %}
-            <a href="{% url 'people:list' %}" class="hover:text-brand-700">Pessoas</a>
-            <a href="{% url 'events:manage_list' %}" class="hover:text-brand-700">Eventos</a>
-            <a href="{% url 'finance:list' %}" class="hover:text-brand-700">Financeiro</a>
-            <a href="{% url 'notifications:queue' %}" class="hover:text-brand-700">Mensagens</a>
+            <a href="{% url 'people:list' %}" class="text-white/85 hover:text-white">Pessoas</a>
+            <a href="{% url 'events:manage_list' %}" class="text-white/85 hover:text-white">Eventos</a>
+            <a href="{% url 'finance:list' %}" class="text-white/85 hover:text-white">Financeiro</a>
+            <a href="{% url 'notifications:queue' %}" class="text-white/85 hover:text-white">Mensagens</a>
             <div class="relative">
                 <button type="button"
                         onclick="document.getElementById('nav-mais').classList.toggle('hidden'); event.stopPropagation();"
-                        class="hover:text-brand-700 flex items-center gap-1">
+                        class="text-white/85 hover:text-white flex items-center gap-1">
                     Mais
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                     </svg>
                 </button>
-                <div id="nav-mais" class="hidden absolute right-0 mt-2 w-48 bg-white border border-slate-200 rounded-lg shadow-lg py-1 z-10">
+                <div id="nav-mais" class="hidden absolute right-0 mt-2 w-48 bg-white border border-slate-200 rounded-lg shadow-lg py-1 z-10 text-slate-700">
                     <a href="{% url 'linkbio:manage' %}" class="block px-4 py-2 hover:bg-slate-50">Link na Bio</a>
                     <a href="{% url 'cells:list' %}" class="block px-4 py-2 hover:bg-slate-50">Células</a>
                     <a href="{% url 'checkin:lista' %}" class="block px-4 py-2 hover:bg-slate-50">Check-in infantil</a>
@@ -74,50 +74,50 @@
                 </div>
             </div>
             {% endif %}
-            <span class="text-slate-400">|</span>
-            <a href="{% url 'core:manual' %}" class="hover:text-brand-700">Manual</a>
-            <a href="{% url 'accounts:totp_status' %}" class="hover:text-brand-700" title="Segurança da conta">Segurança</a>
-            <span class="text-slate-600">{{ user }} <span class="text-xs text-slate-400">({% if user.is_platform_owner %}Dono da plataforma{% else %}{{ user.get_role_display }}{% endif %})</span></span>
+            <span class="text-white/40">|</span>
+            <a href="{% url 'core:manual' %}" class="text-white/85 hover:text-white">Manual</a>
+            <a href="{% url 'accounts:totp_status' %}" class="text-white/85 hover:text-white" title="Segurança da conta">Segurança</a>
+            <span class="text-white/90">{{ user }} <span class="text-xs text-white/60">({% if user.is_platform_owner %}Dono da plataforma{% else %}{{ user.get_role_display }}{% endif %})</span></span>
             <form method="post" action="{% url 'accounts:logout' %}">
                 {% csrf_token %}
-                <button type="submit" class="text-slate-500 hover:text-red-600">Sair</button>
+                <button type="submit" class="text-white/85 hover:text-white">Sair</button>
             </form>
         </div>
 
         <button type="button" onclick="document.getElementById('mobile-nav').classList.toggle('hidden')"
-                class="md:hidden text-slate-600 p-2" aria-label="Menu">
+                class="md:hidden text-white p-2" aria-label="Menu">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
             </svg>
         </button>
     </div>
 
-    <div id="mobile-nav" class="hidden md:hidden border-t border-slate-200 px-4 py-3 space-y-3 text-sm">
-        <a href="{% url 'core:dashboard' %}" class="block hover:text-brand-700">Dashboard</a>
+    <div id="mobile-nav" class="hidden md:hidden border-t border-white/20 px-4 py-3 space-y-3 text-sm">
+        <a href="{% url 'core:dashboard' %}" class="block text-white/85 hover:text-white">Dashboard</a>
         {% if user.is_platform_owner %}
-        <a href="{% url 'core:gestao_dashboard' %}" class="block hover:text-brand-700">Painel</a>
-        <a href="{% url 'core:gestao_church_list' %}" class="block hover:text-brand-700">Igrejas</a>
-        <a href="{% url 'core:gestao_commands' %}" class="block hover:text-brand-700">Comandos</a>
+        <a href="{% url 'core:gestao_dashboard' %}" class="block text-white/85 hover:text-white">Painel</a>
+        <a href="{% url 'core:gestao_church_list' %}" class="block text-white/85 hover:text-white">Igrejas</a>
+        <a href="{% url 'core:gestao_commands' %}" class="block text-white/85 hover:text-white">Comandos</a>
         {% elif user.can_manage_people %}
-        <a href="{% url 'people:list' %}" class="block hover:text-brand-700">Pessoas</a>
-        <a href="{% url 'events:manage_list' %}" class="block hover:text-brand-700">Eventos</a>
-        <a href="{% url 'linkbio:manage' %}" class="block hover:text-brand-700">Link na Bio</a>
-        <a href="{% url 'finance:list' %}" class="block hover:text-brand-700">Financeiro</a>
-        <a href="{% url 'cells:list' %}" class="block hover:text-brand-700">Células</a>
-        <a href="{% url 'checkin:lista' %}" class="block hover:text-brand-700">Check-in infantil</a>
-        <a href="{% url 'escalas:calendario' %}" class="block hover:text-brand-700">Escalas</a>
-        <a href="{% url 'sermons:list' %}" class="block hover:text-brand-700">Sermões</a>
-        <a href="{% url 'notifications:queue' %}" class="block hover:text-brand-700">Mensagens</a>
-        <a href="{% url 'custom_forms:list' %}" class="block hover:text-brand-700">Formulários</a>
-        <a href="{% url 'core:settings' %}" class="block hover:text-brand-700">Configurações</a>
+        <a href="{% url 'people:list' %}" class="block text-white/85 hover:text-white">Pessoas</a>
+        <a href="{% url 'events:manage_list' %}" class="block text-white/85 hover:text-white">Eventos</a>
+        <a href="{% url 'linkbio:manage' %}" class="block text-white/85 hover:text-white">Link na Bio</a>
+        <a href="{% url 'finance:list' %}" class="block text-white/85 hover:text-white">Financeiro</a>
+        <a href="{% url 'cells:list' %}" class="block text-white/85 hover:text-white">Células</a>
+        <a href="{% url 'checkin:lista' %}" class="block text-white/85 hover:text-white">Check-in infantil</a>
+        <a href="{% url 'escalas:calendario' %}" class="block text-white/85 hover:text-white">Escalas</a>
+        <a href="{% url 'sermons:list' %}" class="block text-white/85 hover:text-white">Sermões</a>
+        <a href="{% url 'notifications:queue' %}" class="block text-white/85 hover:text-white">Mensagens</a>
+        <a href="{% url 'custom_forms:list' %}" class="block text-white/85 hover:text-white">Formulários</a>
+        <a href="{% url 'core:settings' %}" class="block text-white/85 hover:text-white">Configurações</a>
         {% endif %}
-        <a href="{% url 'core:manual' %}" class="block hover:text-brand-700">Manual</a>
-        <a href="{% url 'accounts:totp_status' %}" class="block hover:text-brand-700">Segurança</a>
-        <div class="pt-2 border-t border-slate-100 flex items-center justify-between">
-            <span class="text-slate-600">{{ user }} <span class="text-xs text-slate-400">({% if user.is_platform_owner %}Dono da plataforma{% else %}{{ user.get_role_display }}{% endif %})</span></span>
+        <a href="{% url 'core:manual' %}" class="block text-white/85 hover:text-white">Manual</a>
+        <a href="{% url 'accounts:totp_status' %}" class="block text-white/85 hover:text-white">Segurança</a>
+        <div class="pt-2 border-t border-white/20 flex items-center justify-between">
+            <span class="text-white/90">{{ user }} <span class="text-xs text-white/60">({% if user.is_platform_owner %}Dono da plataforma{% else %}{{ user.get_role_display }}{% endif %})</span></span>
             <form method="post" action="{% url 'accounts:logout' %}">
                 {% csrf_token %}
-                <button type="submit" class="text-slate-500 hover:text-red-600">Sair</button>
+                <button type="submit" class="text-white/85 hover:text-white">Sair</button>
             </form>
         </div>
     </div>

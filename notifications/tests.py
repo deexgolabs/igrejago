@@ -90,6 +90,59 @@ class TestMessageQueueListAndCancel:
 
 
 @pytest.mark.django_db
+class TestQueuePrevisaoDeEnvio:
+    """Regressão: a coluna "Agendada para" mostrava só "assim que possível"
+    pra quase toda mensagem (`scheduled_for` quase sempre em branco), sem
+    dar nenhuma pista de quando ela ia sair de verdade — achado num
+    relato real de usuário. Ver `MessageQueueListView._anotar_previsao_de_envio`."""
+
+    def test_pending_messages_get_sequential_queue_position(self, pastor_client, church):
+        first = WhatsAppMessage.objects.create(church=church, phone="5562911110001", message="Um")
+        second = WhatsAppMessage.objects.create(church=church, phone="5562911110002", message="Dois")
+
+        response = pastor_client.get("/mensagens/")
+        by_pk = {m.pk: m for m in response.context["queue_messages"]}
+        assert by_pk[first.pk].queue_position == 1
+        assert by_pk[second.pk].queue_position == 2
+        assert by_pk[first.pk].estimated_send_at < by_pk[second.pk].estimated_send_at
+
+    def test_message_beyond_batch_size_lands_in_a_later_cycle(self, pastor_client, church):
+        church.whatsapp_batch_size = 1
+        church.whatsapp_send_interval_seconds = 6
+        church.save()
+        first = WhatsAppMessage.objects.create(church=church, phone="5562911110001", message="Um")
+        second = WhatsAppMessage.objects.create(church=church, phone="5562911110002", message="Dois")
+
+        response = pastor_client.get("/mensagens/")
+        by_pk = {m.pk: m for m in response.context["queue_messages"]}
+        # batch_size=1 -> a segunda mensagem só entra no PRÓXIMO ciclo da
+        # tarefa contínua (WHATSAPP_QUEUE_CYCLE_SECONDS), não no mesmo lote.
+        gap = (by_pk[second.pk].estimated_send_at - by_pk[first.pk].estimated_send_at).total_seconds()
+        assert gap >= 50
+
+    def test_sent_message_has_no_estimate(self, pastor_client, church):
+        msg = WhatsAppMessage.objects.create(
+            church=church, phone="5562911110001", message="Um", status=WhatsAppMessage.Status.SENT
+        )
+        response = pastor_client.get("/mensagens/")
+        by_pk = {m.pk: m for m in response.context["queue_messages"]}
+        assert by_pk[msg.pk].estimated_send_at is None
+
+    def test_future_scheduled_message_has_no_estimate_yet(self, pastor_client, church):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        msg = WhatsAppMessage.objects.create(
+            church=church, phone="5562911110001", message="Um",
+            scheduled_for=timezone.now() + timedelta(days=1),
+        )
+        response = pastor_client.get("/mensagens/")
+        by_pk = {m.pk: m for m in response.context["queue_messages"]}
+        assert by_pk[msg.pk].estimated_send_at is None
+
+
+@pytest.mark.django_db
 class TestProcessarFilaCommand:
     def test_sends_due_messages_and_sleeps_between_them(self, church_config, capsys):
         WhatsAppMessage.objects.create(church=church_config, phone="5562911110001", message="Um")

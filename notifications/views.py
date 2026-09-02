@@ -1,5 +1,6 @@
 import json
 import logging
+from datetime import timedelta
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -62,6 +63,15 @@ class ScheduledMessageCreateView(CanManagePeopleMixin, View):
         return redirect("notifications:queue")
 
 
+# Cadência real do processamento da fila — a tarefa "sempre ativa" no
+# PythonAnywhere chama `processar_fila_whatsapp` e dorme esse tanto entre
+# uma chamada e outra (ver o comando de `always_on` configurado no painel
+# da PythonAnywhere). Usado só pra dar uma ESTIMATIVA de horário na tela
+# da fila — se esse intervalo mudar na infraestrutura, atualize aqui
+# também pra não mostrar um horário impreciso.
+WHATSAPP_QUEUE_CYCLE_SECONDS = 55
+
+
 class MessageQueueListView(CanManagePeopleMixin, ListView):
     model = WhatsAppMessage
     template_name = "notifications/queue_list.html"
@@ -79,7 +89,45 @@ class MessageQueueListView(CanManagePeopleMixin, ListView):
         context = super().get_context_data(**kwargs)
         context["status_choices"] = WhatsAppMessage.Status.choices
         context["current_status"] = self.request.GET.get("status", "")
+        self._anotar_previsao_de_envio(context["queue_messages"])
         return context
+
+    def _anotar_previsao_de_envio(self, page_messages):
+        """Calcula, pra cada mensagem PENDING/FAILED elegível AGORA, a
+        mesma posição que `processar_fila_whatsapp` usaria (mesmíssima
+        query, `order_by("created_at")`) e estima o horário de
+        processamento a partir daí — isso é o que aparece na coluna
+        "Previsão de envio" no lugar do genérico "assim que possível".
+        Sem isso, ninguém da secretaria conseguia saber quando uma
+        mensagem ia sair de verdade (achado num relato real de usuário)."""
+        from django.db.models import Q
+
+        church = self.request.church
+        now = timezone.now()
+        eligible_ids = list(
+            WhatsAppMessage.objects.filter(
+                Q(status=WhatsAppMessage.Status.PENDING)
+                & (Q(scheduled_for__isnull=True) | Q(scheduled_for__lte=now))
+                | Q(status=WhatsAppMessage.Status.FAILED, retry_count__lt=church.whatsapp_max_retries)
+            )
+            .order_by("created_at")
+            .values_list("pk", flat=True)
+        )
+        positions = {pk: i for i, pk in enumerate(eligible_ids)}
+        batch_size = church.whatsapp_batch_size or 1
+
+        for msg in page_messages:
+            position = positions.get(msg.pk)
+            if position is None:
+                msg.queue_position = None
+                msg.estimated_send_at = None
+                continue
+            runs_ahead, offset_in_batch = divmod(position, batch_size)
+            msg.queue_position = position + 1
+            msg.estimated_send_at = now + timedelta(
+                seconds=runs_ahead * WHATSAPP_QUEUE_CYCLE_SECONDS
+                + offset_in_batch * church.whatsapp_send_interval_seconds
+            )
 
 
 class MessageCancelView(CanManagePeopleMixin, View):

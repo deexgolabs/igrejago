@@ -20,7 +20,11 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div><label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.name.label }}</label>{{ form.name }}{% if form.name.errors %}<p class="text-xs text-red-600 mt-1">{{ form.name.errors|striptags }}</p>{% endif %}</div>
             <div><label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.pastor_name.label }}</label>{{ form.pastor_name }}</div>
-            <div><label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.logo.label }}</label>{{ form.logo }}</div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.logo.label }}</label>
+                {{ form.logo }}
+                {% if form.logo.errors %}<p class="text-xs text-red-600 mt-1">{{ form.logo.errors|striptags }}</p>{% endif %}
+            </div>
             <div><label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.brand_color.label }}</label>{{ form.brand_color }}</div>
         </div>
     </section>

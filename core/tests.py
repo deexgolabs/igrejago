@@ -497,3 +497,14 @@ class TestRateLimit:
 
         response = client.post("/accounts/login/", {"username": "pastor", "password": "teste12345"})
         assert response.status_code == 302
+
+
+class TestMediaUrl:
+    def test_media_url_is_absolute(self, settings):
+        """Regressão: `MEDIA_URL` sem barra no início ("media/" em vez de
+        "/media/") faz `ImageFieldFile.url` virar uma URL RELATIVA — o
+        navegador resolve a logo da igreja relativo à página atual em vez
+        da raiz do site, então ela só carrega em páginas na raiz e quebra
+        em qualquer rota aninhada (ex.: /mensagens/). Achado ao investigar
+        um relato real de "logo ficou quebrada"."""
+        assert settings.MEDIA_URL.startswith("/")

@@ -26,7 +26,7 @@
                 <th class="text-left px-4 py-3">Destinatário</th>
                 <th class="text-left px-4 py-3">Mensagem</th>
                 <th class="text-left px-4 py-3">Campanha</th>
-                <th class="text-left px-4 py-3">Agendada para</th>
+                <th class="text-left px-4 py-3">Previsão de envio</th>
                 <th class="text-left px-4 py-3">Status</th>
                 <th class="text-right px-4 py-3">Ações</th>
             </tr>
@@ -37,7 +37,16 @@
                 <td class="px-4 py-3 text-slate-700">{{ msg.person.full_name|default:msg.phone }}</td>
                 <td class="px-4 py-3 text-slate-600 max-w-xs truncate" title="{{ msg.message }}">{{ msg.message|truncatechars:60 }}</td>
                 <td class="px-4 py-3 text-slate-500">{{ msg.campaign_label|default:"—" }}</td>
-                <td class="px-4 py-3 text-slate-500">{{ msg.scheduled_for|date:"d/m/Y H:i"|default:"assim que possível" }}</td>
+                <td class="px-4 py-3 text-slate-500">
+                    {% if msg.estimated_send_at %}
+                        ~{{ msg.estimated_send_at|date:"d/m/Y H:i" }}
+                        <span class="text-xs text-slate-400 block">posição {{ msg.queue_position }} na fila</span>
+                    {% elif msg.scheduled_for %}
+                        {{ msg.scheduled_for|date:"d/m/Y H:i" }}
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
                 <td class="px-4 py-3">
                     <span class="text-xs font-medium px-2 py-1 rounded-full
                         {% if msg.status == 'SENT' %}bg-emerald-50 text-emerald-700
