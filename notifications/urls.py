@@ -1,6 +1,8 @@
 from django.urls import path
 
 from notifications.views import (
+    EmailMessageCancelView,
+    EmailQueueListView,
     MessageCancelView,
     MessageQueueListView,
     MessageResendView,
@@ -11,6 +13,8 @@ from notifications.views import (
     PushSubscribeView,
     ResendConfirmationEmailView,
     ScheduledMessageCreateView,
+    SMSMessageCancelView,
+    SMSQueueListView,
     WhatsAppConnectionView,
     WhatsAppConnectView,
     WhatsAppDisconnectView,
@@ -24,6 +28,12 @@ urlpatterns = [
     path("nova/", ScheduledMessageCreateView.as_view(), name="create"),
     path("<int:pk>/cancelar/", MessageCancelView.as_view(), name="cancel"),
     path("<int:pk>/reenviar/", MessageResendView.as_view(), name="resend"),
+
+    path("email/", EmailQueueListView.as_view(), name="email_queue"),
+    path("email/<int:pk>/cancelar/", EmailMessageCancelView.as_view(), name="email_cancel"),
+
+    path("sms/", SMSQueueListView.as_view(), name="sms_queue"),
+    path("sms/<int:pk>/cancelar/", SMSMessageCancelView.as_view(), name="sms_cancel"),
 
     path("modelos/", MessageTemplateListView.as_view(), name="template_list"),
     path("modelos/novo/", MessageTemplateCreateView.as_view(), name="template_create"),

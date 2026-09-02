@@ -22,16 +22,18 @@ from accounts.models import User
 from core.billing import pode_adicionar_pessoa
 from core.ratelimit import RateLimitMixin
 from core.tenancy import PublicChurchMixin, TenantFormMixin
-from notifications.models import MessageTemplate, WhatsAppMessage
+from notifications.models import EmailMessage, MessageTemplate, SMSMessage, WhatsAppMessage
 from people.forms import (
     CampaignForm,
     DepartmentForm,
+    EmailCampaignForm,
     FamilyForm,
     PersonForm,
     PersonImportForm,
     PersonImportFormSet,
     PersonRoleForm,
     PublicVisitorForm,
+    SMSCampaignForm,
     TagForm,
 )
 from people.models import Department, Family, Person, Tag
@@ -670,3 +672,71 @@ class CampaignSendView(CanManagePeopleMixin, View):
             f"{len(queued)} mensagem(ns) adicionada(s) à fila — serão enviadas aos poucos pelo processador da fila.",
         )
         return redirect("notifications:queue")
+
+
+class EmailCampaignSendView(CanManagePeopleMixin, View):
+    """Campanha de e-mail em massa — mesmo espírito de `CampaignSendView`
+    (mesmo `_filter_people`, mesma fila-não-envio-direto), só trocando
+    WhatsApp por e-mail e excluindo quem não tem `email` cadastrado em
+    vez de `phone`."""
+
+    template_name = "people/email_campaign_form.html"
+
+    def get(self, request):
+        people = _filter_people(request.GET, request.user).exclude(email="")
+        return render(request, self.template_name, {"form": EmailCampaignForm(), "recipient_count": people.count()})
+
+    def post(self, request):
+        people = _filter_people(request.GET, request.user).exclude(email="")
+        form = EmailCampaignForm(request.POST)
+        if not form.is_valid():
+            return render(request, self.template_name, {"form": form, "recipient_count": people.count()})
+
+        label = form.cleaned_data["campaign_label"] or f"Campanha {date.today():%d/%m/%Y}"
+        queued = EmailMessage.objects.bulk_create([
+            EmailMessage(
+                church=request.church, person=person, email=person.email,
+                subject=form.cleaned_data["subject"],
+                body=form.cleaned_data["message"].format(nome=person.full_name),
+                campaign_label=label, created_by=request.user,
+            )
+            for person in people
+        ])
+        messages.success(
+            request,
+            f"{len(queued)} e-mail(s) adicionado(s) à fila — serão enviados aos poucos pelo processador da fila.",
+        )
+        return redirect("notifications:email_queue")
+
+
+class SMSCampaignSendView(CanManagePeopleMixin, View):
+    """Campanha de SMS em massa — mesmo espírito de `CampaignSendView`.
+    Envio de verdade ainda não integrado (ver `core.sms`), mas a fila em
+    si já funciona igual às outras."""
+
+    template_name = "people/sms_campaign_form.html"
+
+    def get(self, request):
+        people = _filter_people(request.GET, request.user).exclude(phone="")
+        return render(request, self.template_name, {"form": SMSCampaignForm(), "recipient_count": people.count()})
+
+    def post(self, request):
+        people = _filter_people(request.GET, request.user).exclude(phone="")
+        form = SMSCampaignForm(request.POST)
+        if not form.is_valid():
+            return render(request, self.template_name, {"form": form, "recipient_count": people.count()})
+
+        label = form.cleaned_data["campaign_label"] or f"Campanha {date.today():%d/%m/%Y}"
+        queued = SMSMessage.objects.bulk_create([
+            SMSMessage(
+                church=request.church, person=person, phone=person.whatsapp_number,
+                message=form.cleaned_data["message"].format(nome=person.full_name),
+                campaign_label=label, created_by=request.user,
+            )
+            for person in people
+        ])
+        messages.success(
+            request,
+            f"{len(queued)} SMS adicionado(s) à fila — serão enviados aos poucos pelo processador da fila.",
+        )
+        return redirect("notifications:sms_queue")

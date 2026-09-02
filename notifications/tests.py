@@ -6,7 +6,7 @@ import pytest
 from django.core.management import call_command
 from django.utils import timezone
 
-from notifications.models import MessageTemplate, WhatsAppMessage
+from notifications.models import EmailMessage, MessageTemplate, SMSMessage, WhatsAppMessage
 from notifications.views import normalize_phone
 from people.models import Department, Person
 
@@ -623,3 +623,73 @@ class TestVerificarConexaoWhatsAppCommand:
             call_command("verificar_conexao_whatsapp")
 
         assert len(mailoutbox) == 1
+
+
+@pytest.mark.django_db
+class TestProcessarFilaEmailCommand:
+    def test_sends_pending_emails(self, church_config, mailoutbox):
+        EmailMessage.objects.create(church=church_config, email="a@example.com", subject="Oi", body="Corpo")
+        call_command("processar_fila_email")
+        msg = EmailMessage.objects.get()
+        assert msg.status == EmailMessage.Status.SENT
+        assert msg.sent_at is not None
+        assert len(mailoutbox) == 1
+        assert mailoutbox[0].subject == "Oi"
+        assert mailoutbox[0].to == ["a@example.com"]
+
+    def test_respects_batch_size(self, church_config, mailoutbox):
+        EmailMessage.objects.bulk_create([
+            EmailMessage(church=church_config, email=f"a{i}@example.com", subject="x", body="y") for i in range(5)
+        ])
+        church_config.email_batch_size = 2
+        church_config.save()
+
+        call_command("processar_fila_email")
+        assert EmailMessage.objects.filter(status="SENT").count() == 2
+        assert EmailMessage.objects.filter(status="PENDING").count() == 3
+
+    def test_skips_future_scheduled_emails(self, church_config, mailoutbox):
+        EmailMessage.objects.create(
+            church=church_config, email="a@example.com", subject="x", body="y",
+            scheduled_for=timezone.now() + timedelta(days=1),
+        )
+        call_command("processar_fila_email")
+        assert EmailMessage.objects.get().status == EmailMessage.Status.PENDING
+        assert len(mailoutbox) == 0
+
+
+@pytest.mark.django_db
+class TestProcessarFilaSMSCommand:
+    def test_console_fallback_marks_sent(self, church_config, capsys):
+        SMSMessage.objects.create(church=church_config, phone="5562911110001", message="Oi")
+        call_command("processar_fila_sms")
+        msg = SMSMessage.objects.get()
+        assert msg.status == SMSMessage.Status.SENT
+        output = capsys.readouterr().out
+        assert "SMS" in output
+
+    def test_missing_phone_fails(self, church_config):
+        SMSMessage.objects.create(church=church_config, phone="", message="Oi")
+        call_command("processar_fila_sms")
+        assert SMSMessage.objects.get().status == SMSMessage.Status.FAILED
+
+
+@pytest.mark.django_db
+class TestEmailAndSMSQueueLists:
+    def test_pastor_can_cancel_pending_email(self, pastor_client, church):
+        msg = EmailMessage.objects.create(church=church, email="a@example.com", subject="x", body="y")
+        response = pastor_client.post(f"/mensagens/email/{msg.pk}/cancelar/")
+        assert response.status_code == 302
+        assert EmailMessage.objects.get().status == EmailMessage.Status.CANCELLED
+
+    def test_member_cannot_view_email_queue(self, member_client):
+        assert member_client.get("/mensagens/email/").status_code == 403
+
+    def test_pastor_can_cancel_pending_sms(self, pastor_client, church):
+        msg = SMSMessage.objects.create(church=church, phone="5562911110001", message="y")
+        response = pastor_client.post(f"/mensagens/sms/{msg.pk}/cancelar/")
+        assert response.status_code == 302
+        assert SMSMessage.objects.get().status == SMSMessage.Status.CANCELLED
+
+    def test_member_cannot_view_sms_queue(self, member_client):
+        assert member_client.get("/mensagens/sms/").status_code == 403

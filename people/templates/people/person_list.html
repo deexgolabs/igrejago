@@ -49,9 +49,17 @@
     {% if current_filters.q or current_filters.role or current_filters.status or current_filters.age_bracket %}
     <a href="{% url 'people:list' %}" class="text-sm text-slate-500 hover:text-slate-800">Limpar</a>
     {% endif %}
-    <a href="{% url 'people:campaign' %}?{{ querystring }}" class="text-sm text-emerald-700 hover:underline ml-auto">
-        📣 Campanha de WhatsApp para esta lista
-    </a>
+    <div class="ml-auto flex flex-wrap gap-x-4 gap-y-1">
+        <a href="{% url 'people:campaign' %}?{{ querystring }}" class="text-sm text-emerald-700 hover:underline">
+            📣 Campanha de WhatsApp
+        </a>
+        <a href="{% url 'people:email_campaign' %}?{{ querystring }}" class="text-sm text-brand-700 hover:underline">
+            ✉️ Campanha de e-mail
+        </a>
+        <a href="{% url 'people:sms_campaign' %}?{{ querystring }}" class="text-sm text-slate-600 hover:underline">
+            💬 Campanha de SMS
+        </a>
+    </div>
 </form>
 
 <div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">

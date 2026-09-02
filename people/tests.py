@@ -38,6 +38,47 @@ class TestCampaign:
 
 
 @pytest.mark.django_db
+class TestEmailCampaign:
+    def test_queues_only_for_people_with_email(self, pastor_client, church):
+        from notifications.models import EmailMessage
+
+        com_email = Person.objects.create(church=church, full_name="Com E-mail", email="com@example.com")
+        Person.objects.create(church=church, full_name="Sem E-mail")
+
+        response = pastor_client.post("/pessoas/campanha/email/", {
+            "subject": "Aviso importante", "message": "Olá {nome}, culto hoje às 19h!",
+        })
+        assert response.status_code == 302
+
+        queued = EmailMessage.objects.all()
+        assert queued.count() == 1
+        assert queued.first().person == com_email
+        assert "Olá Com E-mail" in queued.first().body
+
+    def test_member_cannot_access_email_campaign(self, member_client):
+        assert member_client.get("/pessoas/campanha/email/").status_code == 403
+
+
+@pytest.mark.django_db
+class TestSMSCampaign:
+    def test_queues_only_for_people_with_phone(self, pastor_client, person, church):
+        from notifications.models import SMSMessage
+
+        Person.objects.create(church=church, full_name="Sem Telefone")
+
+        response = pastor_client.post("/pessoas/campanha/sms/", {"message": "Olá {nome}!"})
+        assert response.status_code == 302
+
+        queued = SMSMessage.objects.all()
+        assert queued.count() == 1
+        assert queued.first().person == person
+        assert queued.first().phone == "5562999998888"
+
+    def test_member_cannot_access_sms_campaign(self, member_client):
+        assert member_client.get("/pessoas/campanha/sms/").status_code == 403
+
+
+@pytest.mark.django_db
 class TestPersonModel:
     def test_age_computed_from_birth_date(self, person):
         person.birth_date = date(1990, 3, 15)

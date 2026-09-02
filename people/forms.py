@@ -156,3 +156,26 @@ class CampaignForm(forms.Form):
         label="Mensagem", widget=forms.Textarea(attrs={"rows": 4}),
         help_text="Use {nome} para personalizar com o nome de cada pessoa.",
     )
+
+
+class EmailCampaignForm(forms.Form):
+    campaign_label = forms.CharField(
+        label="Rótulo da campanha", max_length=100, required=False,
+        help_text="Só pra identificar esse envio na fila. Opcional.",
+    )
+    subject = forms.CharField(label="Assunto", max_length=200)
+    message = forms.CharField(
+        label="Mensagem", widget=forms.Textarea(attrs={"rows": 6}),
+        help_text="Use {nome} para personalizar com o nome de cada pessoa.",
+    )
+
+
+class SMSCampaignForm(forms.Form):
+    campaign_label = forms.CharField(
+        label="Rótulo da campanha", max_length=100, required=False,
+        help_text="Só pra identificar esse envio na fila. Opcional.",
+    )
+    message = forms.CharField(
+        label="Mensagem", max_length=320, widget=forms.Textarea(attrs={"rows": 3}),
+        help_text="Use {nome} para personalizar — SMS tem limite curto (320 caracteres), sem formatação.",
+    )

@@ -18,7 +18,7 @@ from core.models import Church
 from core.tenancy import TenantFormMixin
 from core.views import enviar_email_confirmacao
 from notifications.forms import MessageTemplateForm, ScheduledMessageForm
-from notifications.models import MessageTemplate, PushSubscription, WhatsAppMessage
+from notifications.models import EmailMessage, MessageTemplate, PushSubscription, SMSMessage, WhatsAppMessage
 
 logger = logging.getLogger(__name__)
 
@@ -423,3 +423,72 @@ class WhatsAppWebhookView(View):
         else:
             updated.update(delivery_status=delivery_status)
         return HttpResponse(status=200)
+
+
+class EmailQueueListView(CanManagePeopleMixin, ListView):
+    """Fila de e-mail em massa — mesmo padrão de `MessageQueueListView`,
+    sem a estimativa de horário (SMTP não tem o mesmo intervalo/risco de
+    banimento por rajada que o WhatsApp, então não há "posição na fila"
+    real pra calcular)."""
+
+    model = EmailMessage
+    template_name = "notifications/email_queue_list.html"
+    context_object_name = "queue_messages"
+    paginate_by = 50
+
+    def get_queryset(self):
+        qs = EmailMessage.objects.select_related("person").order_by("-created_at")
+        user = self.request.user
+        if not user.is_unrestricted_manager:
+            qs = qs.filter(person__department__in=user.led_departments)
+        status = self.request.GET.get("status", "")
+        if status:
+            qs = qs.filter(status=status)
+        return qs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["status_choices"] = EmailMessage.Status.choices
+        context["current_status"] = self.request.GET.get("status", "")
+        return context
+
+
+class EmailMessageCancelView(CanManagePeopleMixin, View):
+    def post(self, request, pk):
+        message = get_object_or_404(EmailMessage, pk=pk, status=EmailMessage.Status.PENDING)
+        message.status = EmailMessage.Status.CANCELLED
+        message.save(update_fields=["status"])
+        messages.success(request, "E-mail cancelado.")
+        return redirect("notifications:email_queue")
+
+
+class SMSQueueListView(CanManagePeopleMixin, ListView):
+    model = SMSMessage
+    template_name = "notifications/sms_queue_list.html"
+    context_object_name = "queue_messages"
+    paginate_by = 50
+
+    def get_queryset(self):
+        qs = SMSMessage.objects.select_related("person").order_by("-created_at")
+        user = self.request.user
+        if not user.is_unrestricted_manager:
+            qs = qs.filter(person__department__in=user.led_departments)
+        status = self.request.GET.get("status", "")
+        if status:
+            qs = qs.filter(status=status)
+        return qs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["status_choices"] = SMSMessage.Status.choices
+        context["current_status"] = self.request.GET.get("status", "")
+        return context
+
+
+class SMSMessageCancelView(CanManagePeopleMixin, View):
+    def post(self, request, pk):
+        message = get_object_or_404(SMSMessage, pk=pk, status=SMSMessage.Status.PENDING)
+        message.status = SMSMessage.Status.CANCELLED
+        message.save(update_fields=["status"])
+        messages.success(request, "SMS cancelado.")
+        return redirect("notifications:sms_queue")

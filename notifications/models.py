@@ -139,3 +139,98 @@ class PushSubscription(TenantModel):
 
     def __str__(self):
         return f"Push de {self.user} ({self.created_at:%d/%m/%Y})"
+
+
+class EmailMessage(TenantModel):
+    """Fila de e-mail em massa — mesmo espírito de `WhatsAppMessage`
+    (nada é enviado na hora que a linha é criada; quem manda de verdade
+    é `processar_fila_email`, respeitando `Church.email_batch_size` por
+    execução pra não estourar cota do provedor SMTP)."""
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Aguardando"
+        SENT = "SENT", "Enviada"
+        FAILED = "FAILED", "Falhou"
+        CANCELLED = "CANCELLED", "Cancelada"
+
+    person = models.ForeignKey(
+        "people.Person", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="email_messages", verbose_name="Pessoa",
+    )
+    email = models.EmailField("E-mail", help_text="Snapshot no momento do envio.")
+    subject = models.CharField("Assunto", max_length=200)
+    body = models.TextField("Mensagem", help_text="Texto simples — envolvido num modelo visual simples no envio.")
+
+    status = models.CharField("Status", max_length=10, choices=Status.choices, default=Status.PENDING)
+    scheduled_for = models.DateTimeField("Agendada para", null=True, blank=True)
+    sent_at = models.DateTimeField("Enviada em", null=True, blank=True)
+    error_message = models.CharField("Erro", max_length=255, blank=True)
+
+    campaign_label = models.CharField("Campanha", max_length=100, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="email_messages_created", verbose_name="Criada por",
+    )
+    created_at = models.DateTimeField("Criada em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "E-mail em massa"
+        verbose_name_plural = "E-mails em massa"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.get_status_display()} → {self.email} ({self.created_at:%d/%m/%Y})"
+
+    @property
+    def is_due(self):
+        from django.utils import timezone
+        return self.scheduled_for is None or self.scheduled_for <= timezone.now()
+
+
+class SMSMessage(TenantModel):
+    """Fila de SMS — "preparado, não integrado" (mesmo padrão de Sentry/
+    Web Push/Evolution API): a fila/tela funciona de verdade, só a
+    chamada real pro provedor (`core.sms.enviar_sms`) ainda não existe
+    — sem um provedor escolhido, cai sempre no fallback de log. Campos
+    mais enxutos que `WhatsAppMessage` de propósito (sem `delivery_status`/
+    `external_id` — isso varia demais entre provedores de SMS pra
+    modelar sem ter escolhido um)."""
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Aguardando"
+        SENT = "SENT", "Enviada"
+        FAILED = "FAILED", "Falhou"
+        CANCELLED = "CANCELLED", "Cancelada"
+
+    person = models.ForeignKey(
+        "people.Person", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="sms_messages", verbose_name="Pessoa",
+    )
+    phone = models.CharField("Telefone", max_length=20, help_text="Snapshot no momento do envio.")
+    message = models.CharField("Mensagem", max_length=320)
+
+    status = models.CharField("Status", max_length=10, choices=Status.choices, default=Status.PENDING)
+    scheduled_for = models.DateTimeField("Agendada para", null=True, blank=True)
+    sent_at = models.DateTimeField("Enviada em", null=True, blank=True)
+    error_message = models.CharField("Erro", max_length=255, blank=True)
+    retry_count = models.PositiveIntegerField("Tentativas", default=0)
+
+    campaign_label = models.CharField("Campanha", max_length=100, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="sms_messages_created", verbose_name="Criada por",
+    )
+    created_at = models.DateTimeField("Criada em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "SMS"
+        verbose_name_plural = "SMS"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.get_status_display()} → {self.phone} ({self.created_at:%d/%m/%Y})"
+
+    @property
+    def is_due(self):
+        from django.utils import timezone
+        return self.scheduled_for is None or self.scheduled_for <= timezone.now()

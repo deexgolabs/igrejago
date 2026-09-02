@@ -1,16 +1,13 @@
 {% extends "base.html" %}
-{% block title %}Fila de mensagens{% endblock %}
+{% block title %}Fila de SMS{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-6">
-    <h1 class="text-2xl font-bold text-slate-900">Fila de WhatsApp</h1>
-    <div class="flex gap-2">
-        <a href="{% url 'notifications:email_queue' %}" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Fila de e-mail</a>
-        <a href="{% url 'notifications:sms_queue' %}" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Fila de SMS</a>
-        <a href="{% url 'notifications:template_list' %}" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Modelos</a>
-        <a href="{% url 'notifications:whatsapp_connection' %}" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Conectar WhatsApp</a>
-        <a href="{% url 'notifications:create' %}" class="text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg px-3 py-2">+ Mensagem avulsa</a>
-    </div>
+    <h1 class="text-2xl font-bold text-slate-900">Fila de SMS</h1>
+    <a href="{% url 'notifications:queue' %}" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Fila de WhatsApp</a>
 </div>
+<p class="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2 mb-4">
+    SMS ainda não tem provedor configurado — mensagens ficam registradas aqui, mas ainda não saem de verdade.
+</p>
 
 <form method="get" class="mb-4">
     <select name="status" onchange="this.form.submit()" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm">
@@ -28,7 +25,6 @@
                 <th class="text-left px-4 py-3">Destinatário</th>
                 <th class="text-left px-4 py-3">Mensagem</th>
                 <th class="text-left px-4 py-3">Campanha</th>
-                <th class="text-left px-4 py-3">Previsão de envio</th>
                 <th class="text-left px-4 py-3">Status</th>
                 <th class="text-right px-4 py-3">Ações</th>
             </tr>
@@ -39,16 +35,6 @@
                 <td class="px-4 py-3 text-slate-700">{{ msg.person.full_name|default:msg.phone }}</td>
                 <td class="px-4 py-3 text-slate-600 max-w-xs truncate" title="{{ msg.message }}">{{ msg.message|truncatechars:60 }}</td>
                 <td class="px-4 py-3 text-slate-500">{{ msg.campaign_label|default:"—" }}</td>
-                <td class="px-4 py-3 text-slate-500">
-                    {% if msg.estimated_send_at %}
-                        ~{{ msg.estimated_send_at|date:"d/m/Y H:i" }}
-                        <span class="text-xs text-slate-400 block">posição {{ msg.queue_position }} na fila</span>
-                    {% elif msg.scheduled_for %}
-                        {{ msg.scheduled_for|date:"d/m/Y H:i" }}
-                    {% else %}
-                        —
-                    {% endif %}
-                </td>
                 <td class="px-4 py-3">
                     <span class="text-xs font-medium px-2 py-1 rounded-full
                         {% if msg.status == 'SENT' %}bg-emerald-50 text-emerald-700
@@ -57,29 +43,18 @@
                         {% else %}bg-amber-50 text-amber-700{% endif %}">
                         {{ msg.get_status_display }}
                     </span>
-                    {% if msg.status == 'FAILED' and msg.error_message %}
-                    <p class="text-xs text-red-500 mt-1">{{ msg.error_message|truncatechars:40 }} (tentativa {{ msg.retry_count }})</p>
-                    {% endif %}
-                    {% if msg.status == 'SENT' and msg.delivery_status != 'UNKNOWN' %}
-                    <p class="text-xs text-slate-400 mt-1">{{ msg.get_delivery_status_display }}</p>
-                    {% endif %}
                 </td>
                 <td class="px-4 py-3 text-right">
                     {% if msg.status == 'PENDING' %}
-                    <form method="post" action="{% url 'notifications:cancel' msg.pk %}" class="inline">
+                    <form method="post" action="{% url 'notifications:sms_cancel' msg.pk %}" class="inline">
                         {% csrf_token %}
                         <button type="submit" class="text-slate-500 hover:text-red-600 text-sm">Cancelar</button>
-                    </form>
-                    {% elif msg.status == 'FAILED' %}
-                    <form method="post" action="{% url 'notifications:resend' msg.pk %}" class="inline">
-                        {% csrf_token %}
-                        <button type="submit" class="text-brand-700 hover:text-brand-900 text-sm">Reenviar</button>
                     </form>
                     {% endif %}
                 </td>
             </tr>
             {% empty %}
-            <tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">Nenhuma mensagem na fila.</td></tr>
+            <tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">Nenhum SMS na fila.</td></tr>
             {% endfor %}
         </tbody>
     </table>
