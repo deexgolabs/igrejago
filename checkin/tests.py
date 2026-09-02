@@ -102,3 +102,24 @@ class TestSalaInfantilCombinaComIdade:
         sala = SalaInfantil.objects.create(church=church, name="Geral")
         assert sala.combina_com_idade(0) is True
         assert sala.combina_com_idade(99) is True
+
+
+@pytest.mark.django_db
+class TestCheckinAccessGatedByDepartment:
+    """`department`/`department_leader_client` vêm do conftest.py — um
+    Líder de Departamento só entra no Check-in se o departamento dele
+    tiver `habilita_checkin=True` (ver accounts.mixins.CheckinAccessMixin)."""
+
+    def test_leader_without_checkin_flag_is_denied(self, department_leader_client):
+        assert department_leader_client.get("/checkin/").status_code == 403
+
+    def test_leader_with_checkin_flag_is_allowed(self, department_leader_client, department):
+        department.habilita_checkin = True
+        department.save(update_fields=["habilita_checkin"])
+        assert department_leader_client.get("/checkin/").status_code == 200
+
+    def test_member_is_denied(self, member_client):
+        assert member_client.get("/checkin/").status_code == 403
+
+    def test_pastor_is_allowed_regardless_of_department_flag(self, pastor_client):
+        assert pastor_client.get("/checkin/").status_code == 200

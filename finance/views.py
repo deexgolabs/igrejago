@@ -15,7 +15,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView, View
 
-from accounts.mixins import CanManagePeopleMixin
+from accounts.mixins import IsChurchManagerMixin
 from core.models import Church
 from core.qr import qr_data_uri
 from core.tenancy import TenantFormMixin
@@ -28,7 +28,7 @@ from finance.models import Budget, Donation, RecurringPledge, Transaction
 logger = logging.getLogger(__name__)
 
 
-class TransactionListView(CanManagePeopleMixin, ListView):
+class TransactionListView(IsChurchManagerMixin, ListView):
     model = Transaction
     template_name = "finance/transaction_list.html"
     context_object_name = "transactions"
@@ -96,7 +96,7 @@ class TransactionListView(CanManagePeopleMixin, ListView):
         return {"labels": labels, "income": income_totals, "expense": expense_totals}
 
 
-class TransactionExportView(CanManagePeopleMixin, View):
+class TransactionExportView(IsChurchManagerMixin, View):
     def get(self, request):
         response = HttpResponse(content_type="text/csv; charset=utf-8")
         response["Content-Disposition"] = 'attachment; filename="financeiro.csv"'
@@ -113,7 +113,7 @@ class TransactionExportView(CanManagePeopleMixin, View):
         return response
 
 
-class TransactionExportExcelView(CanManagePeopleMixin, View):
+class TransactionExportExcelView(IsChurchManagerMixin, View):
     """Mesmo conteúdo do CSV, em .xlsx — segue o padrão de
     `people.PersonImportTemplateView` (openpyxl direto, sem lib extra)."""
 
@@ -142,7 +142,7 @@ class TransactionExportExcelView(CanManagePeopleMixin, View):
         return response
 
 
-class TransactionCreateView(TenantFormMixin, CanManagePeopleMixin, CreateView):
+class TransactionCreateView(TenantFormMixin, IsChurchManagerMixin, CreateView):
     model = Transaction
     form_class = TransactionForm
     template_name = "finance/transaction_form.html"
@@ -154,7 +154,7 @@ class TransactionCreateView(TenantFormMixin, CanManagePeopleMixin, CreateView):
         return super().form_valid(form)
 
 
-class TransactionUpdateView(CanManagePeopleMixin, UpdateView):
+class TransactionUpdateView(IsChurchManagerMixin, UpdateView):
     model = Transaction
     form_class = TransactionForm
     template_name = "finance/transaction_form.html"
@@ -165,7 +165,7 @@ class TransactionUpdateView(CanManagePeopleMixin, UpdateView):
         return super().form_valid(form)
 
 
-class TransactionDeleteView(CanManagePeopleMixin, DeleteView):
+class TransactionDeleteView(IsChurchManagerMixin, DeleteView):
     model = Transaction
     template_name = "finance/transaction_confirm_delete.html"
     success_url = reverse_lazy("finance:list")
@@ -175,7 +175,7 @@ class TransactionDeleteView(CanManagePeopleMixin, DeleteView):
         return super().form_valid(form)
 
 
-class BudgetView(CanManagePeopleMixin, View):
+class BudgetView(IsChurchManagerMixin, View):
     """Meta prevista x realizado por categoria, mês a mês — não um form
     Django/CBV comum porque a "linha" é uma categoria fixa (do
     `TextChoices`), não um objeto que já existe no banco; monta a tabela
@@ -235,7 +235,7 @@ class BudgetView(CanManagePeopleMixin, View):
         return {"rows": rows, "month_value": f"{year:04d}-{month:02d}"}
 
 
-class RecurringPledgeListView(CanManagePeopleMixin, View):
+class RecurringPledgeListView(IsChurchManagerMixin, View):
     """Lista as contribuições recorrentes ativas e cruza cada uma com o
     mês corrente: "em dia" se já existe um `Transaction` (categoria
     Dízimo) daquela pessoa neste mês, "em atraso" caso contrário. Não
@@ -275,7 +275,7 @@ class RecurringPledgeListView(CanManagePeopleMixin, View):
         return rows
 
 
-class RecurringPledgeToggleView(CanManagePeopleMixin, View):
+class RecurringPledgeToggleView(IsChurchManagerMixin, View):
     def post(self, request, pk):
         pledge = get_object_or_404(RecurringPledge, pk=pk)
         pledge.active = not pledge.active
@@ -283,7 +283,7 @@ class RecurringPledgeToggleView(CanManagePeopleMixin, View):
         return redirect("finance:recurring_pledges")
 
 
-class RecurringPledgeDeleteView(CanManagePeopleMixin, View):
+class RecurringPledgeDeleteView(IsChurchManagerMixin, View):
     def post(self, request, pk):
         get_object_or_404(RecurringPledge, pk=pk).delete()
         messages.success(request, "Contribuição recorrente removida.")
@@ -409,7 +409,7 @@ class DonationWebhookView(View):
         return HttpResponse(status=200)
 
 
-class DonationListView(CanManagePeopleMixin, ListView):
+class DonationListView(IsChurchManagerMixin, ListView):
     model = Donation
     template_name = "finance/donation_list.html"
     context_object_name = "donations"
@@ -419,7 +419,7 @@ class DonationListView(CanManagePeopleMixin, ListView):
         return Donation.objects.select_related("person").order_by("-created_at")
 
 
-class DonationConfirmPixView(CanManagePeopleMixin, View):
+class DonationConfirmPixView(IsChurchManagerMixin, View):
     """Confirmação manual de uma doação PIX — a secretaria confere o
     extrato do banco e confirma aqui, igual ao PIX de inscrição em evento."""
 

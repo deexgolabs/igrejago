@@ -6,7 +6,9 @@
 {% block content %}
 <div class="flex items-center justify-between mb-6">
     <h1 class="text-2xl font-bold text-slate-900">Painel</h1>
+    {% if user.is_unrestricted_manager %}
     <a href="{% url 'core:report_pdf' %}" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Baixar relatório (PDF)</a>
+    {% endif %}
 </div>
 
 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">

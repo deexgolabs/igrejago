@@ -11,7 +11,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView, View
 
-from accounts.mixins import CanManagePeopleMixin
+from accounts.mixins import CanManagePeopleMixin, IsChurchManagerMixin
 from core import whatsapp
 from core.billing import whatsapp_liberado
 from core.models import Church
@@ -40,11 +40,11 @@ class ScheduledMessageCreateView(CanManagePeopleMixin, View):
 
     def get(self, request):
         return render(request, self.template_name, {
-            "form": ScheduledMessageForm(), "templates": MessageTemplate.objects.all(),
+            "form": ScheduledMessageForm(user=request.user), "templates": MessageTemplate.objects.all(),
         })
 
     def post(self, request):
-        form = ScheduledMessageForm(request.POST)
+        form = ScheduledMessageForm(request.POST, user=request.user)
         if not form.is_valid():
             return render(request, self.template_name, {
                 "form": form, "templates": MessageTemplate.objects.all(),
@@ -80,6 +80,13 @@ class MessageQueueListView(CanManagePeopleMixin, ListView):
 
     def get_queryset(self):
         qs = WhatsAppMessage.objects.select_related("person").order_by("-created_at")
+        user = self.request.user
+        if not user.is_unrestricted_manager:
+            # Líder de Departamento escopado só vê mensagens de pessoas do
+            # próprio departamento — mensagem avulsa por telefone (sem
+            # `person`) fica invisível pra ele, só Pastor/Secretaria vê a
+            # fila completa.
+            qs = qs.filter(person__department__in=user.led_departments)
         status = self.request.GET.get("status", "")
         if status:
             qs = qs.filter(status=status)
@@ -130,9 +137,22 @@ class MessageQueueListView(CanManagePeopleMixin, ListView):
             )
 
 
+def _mensagens_escopadas(user):
+    """`WhatsAppMessage.objects` (todas) pra Pastor/Secretaria; só as de
+    pessoas do(s) departamento(s) liderado(s) pra um Líder de Departamento
+    escopado — mesmo princípio de `MessageQueueListView.get_queryset`,
+    reaproveitado aqui pra impedir cancelar/reenviar mensagem de outro
+    departamento direto pela URL."""
+    if user.is_unrestricted_manager:
+        return WhatsAppMessage.objects.all()
+    return WhatsAppMessage.objects.filter(person__department__in=user.led_departments)
+
+
 class MessageCancelView(CanManagePeopleMixin, View):
     def post(self, request, pk):
-        message = get_object_or_404(WhatsAppMessage, pk=pk, status=WhatsAppMessage.Status.PENDING)
+        message = get_object_or_404(
+            _mensagens_escopadas(request.user), pk=pk, status=WhatsAppMessage.Status.PENDING
+        )
         message.status = WhatsAppMessage.Status.CANCELLED
         message.save(update_fields=["status"])
         messages.success(request, "Mensagem cancelada.")
@@ -145,7 +165,9 @@ class MessageResendView(CanManagePeopleMixin, View):
     tentar de novo (não deveria contar contra `whatsapp_max_retries`)."""
 
     def post(self, request, pk):
-        message = get_object_or_404(WhatsAppMessage, pk=pk, status=WhatsAppMessage.Status.FAILED)
+        message = get_object_or_404(
+            _mensagens_escopadas(request.user), pk=pk, status=WhatsAppMessage.Status.FAILED
+        )
         message.status = WhatsAppMessage.Status.PENDING
         message.retry_count = 0
         message.error_message = ""
@@ -154,13 +176,13 @@ class MessageResendView(CanManagePeopleMixin, View):
         return redirect("notifications:queue")
 
 
-class MessageTemplateListView(CanManagePeopleMixin, ListView):
+class MessageTemplateListView(IsChurchManagerMixin, ListView):
     model = MessageTemplate
     template_name = "notifications/template_list.html"
     context_object_name = "message_templates"
 
 
-class MessageTemplateCreateView(TenantFormMixin, CanManagePeopleMixin, CreateView):
+class MessageTemplateCreateView(TenantFormMixin, IsChurchManagerMixin, CreateView):
     model = MessageTemplate
     form_class = MessageTemplateForm
     template_name = "notifications/template_form.html"
@@ -172,7 +194,7 @@ class MessageTemplateCreateView(TenantFormMixin, CanManagePeopleMixin, CreateVie
         return super().form_valid(form)
 
 
-class MessageTemplateUpdateView(CanManagePeopleMixin, UpdateView):
+class MessageTemplateUpdateView(IsChurchManagerMixin, UpdateView):
     model = MessageTemplate
     form_class = MessageTemplateForm
     template_name = "notifications/template_form.html"
@@ -183,7 +205,7 @@ class MessageTemplateUpdateView(CanManagePeopleMixin, UpdateView):
         return super().form_valid(form)
 
 
-class MessageTemplateDeleteView(CanManagePeopleMixin, DeleteView):
+class MessageTemplateDeleteView(IsChurchManagerMixin, DeleteView):
     model = MessageTemplate
     template_name = "notifications/template_confirm_delete.html"
     success_url = "/mensagens/modelos/"
@@ -239,7 +261,7 @@ class PushSubscribeView(LoginRequiredMixin, View):
         return HttpResponse(status=204)
 
 
-class WhatsAppConnectionView(CanManagePeopleMixin, View):
+class WhatsAppConnectionView(IsChurchManagerMixin, View):
     """A tela onde o pastor/secretaria conecta o número de WhatsApp da
     igreja — só "Conectar" (que já mostra o QR code na hora) e
     "Desconectar", sem nenhum campo técnico. Isso é infraestrutura
@@ -252,7 +274,7 @@ class WhatsAppConnectionView(CanManagePeopleMixin, View):
         return render(request, self.template_name, _connection_context(request))
 
 
-class WhatsAppConnectView(CanManagePeopleMixin, View):
+class WhatsAppConnectView(IsChurchManagerMixin, View):
     """Botão único "Conectar": tenta pegar o QR code direto (instância já
     existe na maioria dos casos, criada uma vez pelo dono); se falhar
     (primeira vez, instância ainda não existe), cria a instância e tenta
@@ -302,7 +324,7 @@ class WhatsAppConnectView(CanManagePeopleMixin, View):
         )
 
 
-class ResendConfirmationEmailView(CanManagePeopleMixin, View):
+class ResendConfirmationEmailView(IsChurchManagerMixin, View):
     """Reenvia o e-mail de confirmação da igreja (Fase 2) — botão que
     aparece na própria tela de Conectar WhatsApp enquanto
     `Church.email_confirmed` for falso."""
@@ -325,7 +347,7 @@ class ResendConfirmationEmailView(CanManagePeopleMixin, View):
         return redirect("notifications:whatsapp_connection")
 
 
-class WhatsAppDisconnectView(CanManagePeopleMixin, View):
+class WhatsAppDisconnectView(IsChurchManagerMixin, View):
     def post(self, request):
         config = request.church
         try:

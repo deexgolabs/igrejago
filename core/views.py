@@ -20,7 +20,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import ListView, TemplateView, View
 
-from accounts.mixins import CanManagePeopleMixin, IsPlatformOwnerMixin
+from accounts.mixins import IsChurchManagerMixin, IsPlatformOwnerMixin
 from core.billing import PLANOS
 from core.forms import ChurchConfigForm, ChurchOverrideForm, ChurchSignupForm
 from core.mercadopago_billing import consultar_assinatura, criar_assinatura
@@ -199,7 +199,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         return {"labels": labels, "counts": counts}
 
 
-class AuditLogListView(CanManagePeopleMixin, ListView):
+class AuditLogListView(IsChurchManagerMixin, ListView):
     """Versão dentro do próprio sistema do que antes só existia no Django
     admin — "quem mudou o quê e quando", sem precisar dar acesso ao admin
     pra alguém só pra isso. Mesmos dados de `core.AuditLog`, só filtro e
@@ -231,7 +231,7 @@ class AuditLogListView(CanManagePeopleMixin, ListView):
         return context
 
 
-class GeneralReportPDFView(CanManagePeopleMixin, View):
+class GeneralReportPDFView(IsChurchManagerMixin, View):
     def get(self, request, *args, **kwargs):
         pdf_bytes = generate_general_report_pdf(request.church)
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
@@ -298,11 +298,11 @@ def service_worker_js(request):
     return HttpResponse(js, content_type="application/javascript")
 
 
-class SettingsView(CanManagePeopleMixin, View):
+class SettingsView(IsChurchManagerMixin, View):
     """Tela de configuração do sistema dentro do próprio app — antes só
     dava pra editar `ChurchConfig` pelo Django admin, depois virou um
     singleton editável in-app; agora edita o registro `Church` (linha) da
-    PRÓPRIA igreja logada (`request.church` — `CanManagePeopleMixin` já
+    PRÓPRIA igreja logada (`request.church` — `IsChurchManagerMixin` já
     garante que existe). Um `ModelForm` comum (`core.forms.ChurchConfigForm`);
     a conexão do WhatsApp em si (QR code) tem tela própria em
     `notifications.WhatsAppConnectionView` — aqui só ficam os campos de
@@ -518,7 +518,7 @@ class SolicitarExclusaoView(LoginRequiredMixin, View):
         return redirect("core:meus_dados")
 
 
-class DataDeletionRequestListView(CanManagePeopleMixin, ListView):
+class DataDeletionRequestListView(IsChurchManagerMixin, ListView):
     """Fila de solicitações de exclusão pendentes, pra secretaria
     processar (`DataDeletionRequestProcessView`)."""
 
@@ -532,7 +532,7 @@ class DataDeletionRequestListView(CanManagePeopleMixin, ListView):
         ).select_related("person")
 
 
-class DataDeletionRequestProcessView(CanManagePeopleMixin, View):
+class DataDeletionRequestProcessView(IsChurchManagerMixin, View):
     """Confirma a exclusão — apaga a `Person` de verdade (ação
     destrutiva, por isso passa por essa tela em vez de acontecer sozinha
     quando a pessoa pede) e marca a solicitação `DONE`."""
@@ -557,7 +557,7 @@ class DataDeletionRequestProcessView(CanManagePeopleMixin, View):
         return redirect("core:data_deletion_requests")
 
 
-class AssinaturaView(CanManagePeopleMixin, View):
+class AssinaturaView(IsChurchManagerMixin, View):
     """Status da assinatura da própria igreja + botões pra assinar um
     plano (Fase 4). Controle manual pelo dono continua funcionando em
     paralelo — esta tela só cobre o caminho automático."""
@@ -568,7 +568,7 @@ class AssinaturaView(CanManagePeopleMixin, View):
         return render(request, self.template_name, {"planos": PLANOS, "church": request.church})
 
 
-class AssinaturaCheckoutView(CanManagePeopleMixin, View):
+class AssinaturaCheckoutView(IsChurchManagerMixin, View):
     def post(self, request, plano_key):
         if plano_key not in PLANOS:
             messages.error(request, "Plano inválido.")

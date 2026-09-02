@@ -9,7 +9,7 @@ from django.urls import reverse_lazy
 from django.utils import timezone
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView, View
 
-from accounts.mixins import CanManagePeopleMixin
+from accounts.mixins import IsChurchManagerMixin
 from core.lgpd import privacy_consent_label
 from core.ratelimit import RateLimitMixin
 from core.tenancy import PublicChurchMixin, TenantFormMixin
@@ -39,7 +39,7 @@ PERSON_FIELD_MAP = {
 }
 
 
-class CustomFormListView(CanManagePeopleMixin, ListView):
+class CustomFormListView(IsChurchManagerMixin, ListView):
     model = CustomForm
     template_name = "custom_forms/customform_list.html"
     context_object_name = "custom_forms"
@@ -50,7 +50,7 @@ class CustomFormListView(CanManagePeopleMixin, ListView):
         return context
 
 
-class CustomFormCreateView(TenantFormMixin, CanManagePeopleMixin, CreateView):
+class CustomFormCreateView(TenantFormMixin, IsChurchManagerMixin, CreateView):
     model = CustomForm
     form_class = CustomFormForm
     template_name = "custom_forms/customform_form.html"
@@ -62,7 +62,7 @@ class CustomFormCreateView(TenantFormMixin, CanManagePeopleMixin, CreateView):
         return redirect("custom_forms:field_list", pk=self.object.pk)
 
 
-class CustomFormUpdateView(CanManagePeopleMixin, UpdateView):
+class CustomFormUpdateView(IsChurchManagerMixin, UpdateView):
     model = CustomForm
     form_class = CustomFormForm
     template_name = "custom_forms/customform_form.html"
@@ -79,7 +79,7 @@ class CustomFormUpdateView(CanManagePeopleMixin, UpdateView):
         return super().form_valid(form)
 
 
-class CustomFormDeleteView(CanManagePeopleMixin, DeleteView):
+class CustomFormDeleteView(IsChurchManagerMixin, DeleteView):
     model = CustomForm
     template_name = "custom_forms/customform_confirm_delete.html"
     success_url = reverse_lazy("custom_forms:list")
@@ -89,7 +89,7 @@ class CustomFormDeleteView(CanManagePeopleMixin, DeleteView):
         return super().form_valid(form)
 
 
-class CustomFormDuplicateView(CanManagePeopleMixin, View):
+class CustomFormDuplicateView(IsChurchManagerMixin, View):
     """Clona um formulário existente (config + campos, sem as respostas)
     como ponto de partida pra um novo — mais rápido do que montar tudo de
     novo quando só muda um detalhe. Sempre nasce inativo (`is_active=False`)
@@ -119,7 +119,7 @@ class CustomFormDuplicateView(CanManagePeopleMixin, View):
         return redirect("custom_forms:field_list", pk=clone.pk)
 
 
-class CustomFormFromStarterView(CanManagePeopleMixin, View):
+class CustomFormFromStarterView(IsChurchManagerMixin, View):
     """Cria um formulário já com um conjunto de campos comuns pré-montado
     (ver `custom_forms.starter_templates`) — ponto de partida rápido pra
     quem não quer montar do zero. Também nasce inativo."""
@@ -145,7 +145,7 @@ class CustomFormFromStarterView(CanManagePeopleMixin, View):
         return redirect("custom_forms:field_list", pk=custom_form.pk)
 
 
-class FormFieldListView(CanManagePeopleMixin, View):
+class FormFieldListView(IsChurchManagerMixin, View):
     """Gerencia os campos de um formulário — lista + adiciona um novo campo
     na mesma tela (mesmo padrão de `people.TagListView`/`FamilyListView`);
     editar/excluir um campo existente tem view própria."""
@@ -172,7 +172,7 @@ class FormFieldListView(CanManagePeopleMixin, View):
         return render(request, self.template_name, {"custom_form": custom_form, "form": form})
 
 
-class FormFieldUpdateView(CanManagePeopleMixin, UpdateView):
+class FormFieldUpdateView(IsChurchManagerMixin, UpdateView):
     model = FormField
     form_class = FormFieldForm
     template_name = "custom_forms/field_form.html"
@@ -186,7 +186,7 @@ class FormFieldUpdateView(CanManagePeopleMixin, UpdateView):
         return reverse_lazy("custom_forms:field_list", args=[self.object.form_id])
 
 
-class FormFieldDeleteView(CanManagePeopleMixin, View):
+class FormFieldDeleteView(IsChurchManagerMixin, View):
     def post(self, request, pk, field_pk):
         field = get_object_or_404(FormField, pk=field_pk, form_id=pk)
         field.delete()
@@ -194,7 +194,7 @@ class FormFieldDeleteView(CanManagePeopleMixin, View):
         return redirect("custom_forms:field_list", pk=pk)
 
 
-class FormResponseListView(CanManagePeopleMixin, View):
+class FormResponseListView(IsChurchManagerMixin, View):
     template_name = "custom_forms/response_list.html"
 
     def get(self, request, pk):
@@ -214,7 +214,7 @@ class FormResponseListView(CanManagePeopleMixin, View):
         })
 
 
-class FormResponseExportView(CanManagePeopleMixin, View):
+class FormResponseExportView(IsChurchManagerMixin, View):
     def get(self, request, pk):
         custom_form = get_object_or_404(CustomForm, pk=pk)
         fields = list(custom_form.fields.order_by("order", "id"))

@@ -2,19 +2,19 @@ from django.contrib import messages
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
-from accounts.mixins import CanManagePeopleMixin
+from accounts.mixins import IsChurchManagerMixin
 from core.tenancy import PublicChurchMixin, TenantFormMixin
 from sermons.forms import SermonForm
 from sermons.models import Sermon
 
 
-class SermonListView(CanManagePeopleMixin, ListView):
+class SermonListView(IsChurchManagerMixin, ListView):
     model = Sermon
     template_name = "sermons/sermon_manage_list.html"
     context_object_name = "sermons"
 
 
-class SermonCreateView(TenantFormMixin, CanManagePeopleMixin, CreateView):
+class SermonCreateView(TenantFormMixin, IsChurchManagerMixin, CreateView):
     model = Sermon
     form_class = SermonForm
     template_name = "sermons/sermon_form.html"
@@ -25,7 +25,7 @@ class SermonCreateView(TenantFormMixin, CanManagePeopleMixin, CreateView):
         return super().form_valid(form)
 
 
-class SermonUpdateView(CanManagePeopleMixin, UpdateView):
+class SermonUpdateView(IsChurchManagerMixin, UpdateView):
     model = Sermon
     form_class = SermonForm
     template_name = "sermons/sermon_form.html"
@@ -36,7 +36,7 @@ class SermonUpdateView(CanManagePeopleMixin, UpdateView):
         return super().form_valid(form)
 
 
-class SermonDeleteView(CanManagePeopleMixin, DeleteView):
+class SermonDeleteView(IsChurchManagerMixin, DeleteView):
     model = Sermon
     template_name = "sermons/sermon_confirm_delete.html"
     success_url = reverse_lazy("sermons:list")

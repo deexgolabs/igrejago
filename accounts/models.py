@@ -54,8 +54,64 @@ class User(AbstractUser):
     @property
     def can_manage_people(self):
         # Pastor, secretaria e líderes de departamento gerenciam pessoas;
-        # membros comuns só enxergam os próprios dados.
+        # membros comuns só enxergam os próprios dados. Esse é só o
+        # "portão externo" — QUANTO cada um vê é decidido por
+        # `is_unrestricted_manager` mais abaixo (Líder é escopado ao
+        # próprio departamento, Pastor/Admin não têm restrição nenhuma).
         return self.role in (self.Role.PASTOR, self.Role.ADMIN, self.Role.LEADER)
+
+    @property
+    def is_unrestricted_manager(self):
+        # Pastor/Secretaria: acesso total, sem escopo por departamento —
+        # ao contrário de um Líder (ver `is_department_leader`), que só
+        # vê os recursos do(s) departamento(s) que lidera.
+        return self.role in (self.Role.PASTOR, self.Role.ADMIN)
+
+    @property
+    def led_departments(self):
+        # Departamento(s) que essa pessoa lidera — reaproveita o
+        # `related_name="led_departments"` que `Department.leader` já
+        # tinha (não duplicado num campo à parte em User, pra não ter
+        # duas fontes de verdade que podem dessincronizar). Vazio pra
+        # quem não tem `person` vinculado (ex.: dono da plataforma).
+        from people.models import Department
+
+        if not self.person_id:
+            return Department.objects.none()
+        return self.person.led_departments.all()
+
+    @property
+    def is_department_leader(self):
+        # Só conta como "Líder de Departamento" escopado se: tem o role
+        # certo E lidera pelo menos um Department de verdade — um usuário
+        # com role=LEADER mas sem departamento nenhum atribuído não ganha
+        # acesso a nada extra (fica só com o que `can_manage_people`
+        # cobre, na prática nada além do próprio portal).
+        return self.role == self.Role.LEADER and self.led_departments.exists()
+
+    @property
+    def led_cells(self):
+        # Célula(s) que essa pessoa lidera — reaproveita o
+        # `related_name="led_cells"` de `Cell.leader`. INDEPENDE de
+        # `role`: um Membro comum que lidera célula já ganha acesso
+        # escopado a ela (ver `accounts.mixins.CanManageCellsMixin`), sem
+        # precisar virar Líder de Departamento.
+        from cells.models import Cell
+
+        if not self.person_id:
+            return Cell.objects.none()
+        return self.person.led_cells.filter(is_active=True)
+
+    @property
+    def is_cell_leader(self):
+        return self.led_cells.exists()
+
+    @property
+    def has_checkin_access(self):
+        # Mesma condição de `accounts.mixins.CheckinAccessMixin` — exposta
+        # como propriedade também pra decidir se mostra o link no nav
+        # (`templates/base.html`) sem duplicar a lógica no template.
+        return self.is_unrestricted_manager or self.led_departments.filter(habilita_checkin=True).exists()
 
     @property
     def is_platform_owner(self):

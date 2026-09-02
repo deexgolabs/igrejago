@@ -10,7 +10,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView, View
 
-from accounts.mixins import CanManagePeopleMixin
+from accounts.mixins import IsChurchManagerMixin
 from core.colors import generate_palette
 from core.models import Church
 from core.push import enviar_push_para_usuario
@@ -26,14 +26,14 @@ from notifications.models import WhatsAppMessage
 logger = logging.getLogger(__name__)
 
 
-class EventListView(CanManagePeopleMixin, ListView):
+class EventListView(IsChurchManagerMixin, ListView):
     model = Event
     template_name = "events/event_manage_list.html"
     context_object_name = "events"
     ordering = ["-start_datetime"]
 
 
-class EventCreateView(TenantFormMixin, CanManagePeopleMixin, CreateView):
+class EventCreateView(TenantFormMixin, IsChurchManagerMixin, CreateView):
     model = Event
     form_class = EventForm
     template_name = "events/event_form.html"
@@ -44,7 +44,7 @@ class EventCreateView(TenantFormMixin, CanManagePeopleMixin, CreateView):
         return super().form_valid(form)
 
 
-class EventUpdateView(CanManagePeopleMixin, UpdateView):
+class EventUpdateView(IsChurchManagerMixin, UpdateView):
     model = Event
     form_class = EventForm
     template_name = "events/event_form.html"
@@ -54,7 +54,7 @@ class EventUpdateView(CanManagePeopleMixin, UpdateView):
         return super().form_valid(form)
 
 
-class EventDeleteView(CanManagePeopleMixin, DeleteView):
+class EventDeleteView(IsChurchManagerMixin, DeleteView):
     model = Event
     template_name = "events/event_confirm_delete.html"
     success_url = reverse_lazy("events:manage_list")
@@ -255,7 +255,7 @@ class RegistrationDoneView(PublicChurchMixin, DetailView):
         return context
 
 
-class RegistrationCheckInView(CanManagePeopleMixin, View):
+class RegistrationCheckInView(IsChurchManagerMixin, View):
     """Endpoint que o QR code de check-in aponta — pensado pra ser aberto
     escaneando com a câmera comum do celular (não precisa de nenhum app/lib
     de leitura de QR): o QR só encoda essa URL, e quem escaneia é sempre um
@@ -274,7 +274,7 @@ class RegistrationCheckInView(CanManagePeopleMixin, View):
         })
 
 
-class RegistrationPromoteView(CanManagePeopleMixin, View):
+class RegistrationPromoteView(IsChurchManagerMixin, View):
     """Promove uma inscrição da lista de espera pra confirmada — manual,
     porque a secretaria costuma saber melhor do que uma regra automática
     quem priorizar quando abre uma vaga. Avisa a pessoa pela fila de
@@ -316,7 +316,7 @@ class RegistrationPromoteView(CanManagePeopleMixin, View):
         return redirect("events:registrations", slug=slug)
 
 
-class RegistrationListView(CanManagePeopleMixin, ListView):
+class RegistrationListView(IsChurchManagerMixin, ListView):
     template_name = "events/registration_list.html"
     context_object_name = "registrations"
     paginate_by = 50
@@ -331,7 +331,7 @@ class RegistrationListView(CanManagePeopleMixin, ListView):
         return context
 
 
-class RegistrationMarkPaidView(CanManagePeopleMixin, View):
+class RegistrationMarkPaidView(IsChurchManagerMixin, View):
     """Confirmação manual de pagamento — sem gateway real integrado, é a
     secretaria quem verifica o recebimento do PIX e marca aqui."""
 
@@ -344,7 +344,7 @@ class RegistrationMarkPaidView(CanManagePeopleMixin, View):
         return redirect("events:registrations", slug=slug)
 
 
-class RegistrationExportView(CanManagePeopleMixin, View):
+class RegistrationExportView(IsChurchManagerMixin, View):
     def get(self, request, slug):
         event = get_object_or_404(Event, slug=slug)
         response = HttpResponse(content_type="text/csv; charset=utf-8")

@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from notifications.models import MessageTemplate, WhatsAppMessage
 from notifications.views import normalize_phone
+from people.models import Department, Person
 
 
 class TestNormalizePhone:
@@ -140,6 +141,58 @@ class TestQueuePrevisaoDeEnvio:
         response = pastor_client.get("/mensagens/")
         by_pk = {m.pk: m for m in response.context["queue_messages"]}
         assert by_pk[msg.pk].estimated_send_at is None
+
+
+@pytest.mark.django_db
+class TestMessagesDepartmentLeaderScopedAccess:
+    """`department`/`department_leader_client` vêm do conftest.py."""
+
+    def test_queue_shows_only_messages_from_own_department(self, department_leader_client, church, department, person):
+        outro_dept = Department.objects.create(church=church, name="Diaconato")
+        outra_pessoa = Person.objects.create(church=church, full_name="Fora", department=outro_dept)
+        person.department = department
+        person.save(update_fields=["department"])
+
+        propria = WhatsAppMessage.objects.create(church=church, person=person, phone="5562911110000", message="Oi")
+        de_outro = WhatsAppMessage.objects.create(church=church, person=outra_pessoa, phone="5562911110001", message="Oi")
+        avulsa = WhatsAppMessage.objects.create(church=church, phone="5562911110002", message="Sem pessoa")
+
+        response = department_leader_client.get("/mensagens/")
+        shown = list(response.context["queue_messages"])
+        assert propria in shown
+        assert de_outro not in shown
+        assert avulsa not in shown
+
+    def test_avulsa_recipient_picker_restricted_to_own_department(self, department_leader_client, church, department, person):
+        outro_dept = Department.objects.create(church=church, name="Diaconato")
+        Person.objects.create(church=church, full_name="Fora", department=outro_dept, phone="5562911110001")
+        person.department = department
+        person.save(update_fields=["department"])
+
+        response = department_leader_client.get("/mensagens/nova/")
+        people_choices = list(response.context["form"].fields["person"].queryset)
+        assert people_choices == [person]
+
+    def test_cannot_cancel_message_from_another_department(self, department_leader_client, church):
+        outro_dept = Department.objects.create(church=church, name="Diaconato")
+        outra_pessoa = Person.objects.create(church=church, full_name="Fora", department=outro_dept)
+        msg = WhatsAppMessage.objects.create(church=church, person=outra_pessoa, phone="5562911110001", message="Oi")
+
+        response = department_leader_client.post(f"/mensagens/{msg.pk}/cancelar/")
+        assert response.status_code == 404
+        msg.refresh_from_db()
+        assert msg.status == WhatsAppMessage.Status.PENDING
+
+    def test_pastor_still_sees_everything(self, pastor_client, church):
+        WhatsAppMessage.objects.create(church=church, phone="5562911110000", message="Avulsa")
+        response = pastor_client.get("/mensagens/")
+        assert len(response.context["queue_messages"]) >= 1
+
+    def test_department_leader_cannot_manage_templates(self, department_leader_client):
+        assert department_leader_client.get("/mensagens/modelos/").status_code == 403
+
+    def test_department_leader_cannot_manage_whatsapp_connection(self, department_leader_client):
+        assert department_leader_client.get("/mensagens/whatsapp/").status_code == 403
 
 
 @pytest.mark.django_db

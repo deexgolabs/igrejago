@@ -26,14 +26,21 @@ class ScheduledMessageForm(forms.Form):
                    "O horário digitado é interpretado no fuso do servidor (America/Sao_Paulo).",
     )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
         # `Person` é `TenantModel` — mesmo motivo do `PersonForm`: o
         # queryset de um campo de formulário simples (não-ModelForm) é
         # avaliado no import do módulo (sem igreja no thread-local ainda)
         # se declarado direto na classe — por isso começa com `.none()`
         # acima e é refeito aqui, por instância.
-        self.fields["person"].queryset = Person.objects.order_by("full_name")
+        people_qs = Person.objects.order_by("full_name")
+        # Líder de Departamento escopado só pode mandar mensagem avulsa
+        # pra gente do PRÓPRIO departamento — o campo `phone` livre
+        # continua existindo (mesma confiança já dada ao staff no resto
+        # do sistema), só o autocomplete de pessoa cadastrada é restrito.
+        if user is not None and not user.is_unrestricted_manager:
+            people_qs = people_qs.filter(department__in=user.led_departments)
+        self.fields["person"].queryset = people_qs
 
     def clean(self):
         cleaned = super().clean()

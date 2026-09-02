@@ -133,8 +133,8 @@
             <li><strong>Baixar meus dados</strong> — gera um arquivo com tudo que o sistema guarda sobre a pessoa.</li>
             <li><strong>Solicitar exclusão</strong> — cria um pedido na fila da secretaria; só é apagado depois de confirmação humana.</li>
         </ul>
-        {% if user.can_manage_people %}
-        <p class="text-sm text-slate-600">Fila de exclusão pra quem gerencia pessoas: Configurações → Solicitações de exclusão. Confirmar apaga o cadastro de verdade — não tem como desfazer.</p>
+        {% if user.is_unrestricted_manager %}
+        <p class="text-sm text-slate-600">Fila de exclusão pra Pastor/Secretaria: Configurações → Solicitações de exclusão. Confirmar apaga o cadastro de verdade — não tem como desfazer.</p>
         {% endif %}
     </section>
 

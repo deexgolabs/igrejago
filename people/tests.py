@@ -5,7 +5,7 @@ from django.core.management import call_command
 from django.utils import timezone
 
 from notifications.models import WhatsAppMessage
-from people.models import AutomacaoJornada, Family, Person, Tag
+from people.models import AutomacaoJornada, Department, Family, Person, Tag
 
 
 @pytest.mark.django_db
@@ -361,3 +361,104 @@ class TestProcessarAutomacaoJornada:
 
         call_command("processar_automacao_jornada")
         assert not WhatsAppMessage.objects.exists()
+
+
+@pytest.mark.django_db
+class TestDepartmentCRUD:
+    def test_pastor_can_create_department(self, pastor_client):
+        response = pastor_client.post("/pessoas/departamentos/novo/", {
+            "name": "Infantil", "leader": "", "habilita_checkin": "on",
+        })
+        assert response.status_code == 302
+        dept = Department.objects.get(name="Infantil")
+        assert dept.habilita_checkin is True
+
+    def test_department_leader_cannot_access_department_crud(self, department_leader_client):
+        # Líder de Departamento é escopado ao próprio departamento — não
+        # gerencia a estrutura de departamentos em si (isso é
+        # `IsChurchManagerMixin`, só Pastor/Secretaria).
+        assert department_leader_client.get("/pessoas/departamentos/").status_code == 403
+        assert department_leader_client.get("/pessoas/departamentos/novo/").status_code == 403
+
+    def test_member_cannot_access_department_crud(self, member_client):
+        assert member_client.get("/pessoas/departamentos/").status_code == 403
+
+
+@pytest.mark.django_db
+class TestPersonUpdateRole:
+    def test_pastor_promotes_person_to_leader(self, pastor_client, person, member_user):
+        member_user.person = person
+        member_user.save(update_fields=["person"])
+
+        response = pastor_client.post(f"/pessoas/{person.pk}/atualizar-acesso/", {"role": "LEADER"})
+        assert response.status_code == 302
+        member_user.refresh_from_db()
+        assert member_user.role == "LEADER"
+
+    def test_department_leader_cannot_change_roles(self, department_leader_client, church, member_user):
+        # `person` (fixture) já está vinculada ao `department_leader_user`
+        # (ver `department_leader_client` no conftest.py) — usa uma pessoa
+        # nova aqui, senão bateria na constraint de unicidade do O2O.
+        outra_pessoa = Person.objects.create(church=church, full_name="Outra Pessoa")
+        member_user.person = outra_pessoa
+        member_user.save(update_fields=["person"])
+        response = department_leader_client.post(f"/pessoas/{outra_pessoa.pk}/atualizar-acesso/", {"role": "PASTOR"})
+        assert response.status_code == 403
+
+    def test_errors_gracefully_when_person_has_no_account(self, pastor_client, person):
+        response = pastor_client.post(f"/pessoas/{person.pk}/atualizar-acesso/", {"role": "LEADER"})
+        assert response.status_code == 302
+        assert not hasattr(person, "user_account")
+
+
+@pytest.mark.django_db
+class TestDepartmentLeaderScopedAccess:
+    """`department`/`department_leader_client` vêm do conftest.py — um
+    Líder de Departamento (role=LEADER) que lidera `department`."""
+
+    def test_sees_only_own_department_people(self, department_leader_client, church, department, person):
+        outro_dept = Department.objects.create(church=church, name="Diaconato")
+        outra_pessoa = Person.objects.create(
+            church=church, full_name="Fora do Departamento", department=outro_dept,
+            is_member=True, status=Person.Status.ACTIVE,
+        )
+        person.department = department
+        person.save(update_fields=["department"])
+
+        response = department_leader_client.get("/pessoas/")
+        names = [p.full_name for p in response.context["people"]]
+        assert person.full_name in names
+        assert outra_pessoa.full_name not in names
+
+    def test_cannot_open_person_from_another_department_directly(self, department_leader_client, church):
+        outro_dept = Department.objects.create(church=church, name="Diaconato")
+        outra_pessoa = Person.objects.create(
+            church=church, full_name="Fora do Departamento", department=outro_dept,
+            is_member=True, status=Person.Status.ACTIVE,
+        )
+        response = department_leader_client.get(f"/pessoas/{outra_pessoa.pk}/editar/")
+        assert response.status_code == 404
+
+    def test_created_person_is_forced_into_own_department(self, department_leader_client, church, department):
+        response = department_leader_client.post("/pessoas/novo/", {
+            "full_name": "Novo Cadastro", "department": "",  # tenta deixar em branco
+            "role": "MEMBER", "status": "ACTIVE", "pipeline_stage": "",
+        })
+        assert response.status_code == 302, response.context["form"].errors if response.status_code == 200 else None
+        pessoa = Person.objects.get(full_name="Novo Cadastro")
+        assert pessoa.department_id == department.pk
+
+    def test_leader_role_without_a_department_sees_nobody(self, member_client, member_user, church):
+        member_user.role = "LEADER"
+        member_user.save(update_fields=["role"])
+        Person.objects.create(church=church, full_name="Alguém", is_member=True, status=Person.Status.ACTIVE)
+
+        response = member_client.get("/pessoas/")
+        assert list(response.context["people"]) == []
+
+    def test_pastor_still_sees_everyone(self, pastor_client, church, department):
+        Department.objects.create(church=church, name="Diaconato")
+        Person.objects.create(church=church, full_name="Qualquer Um", is_member=True, status=Person.Status.ACTIVE)
+
+        response = pastor_client.get("/pessoas/")
+        assert len(response.context["people"]) >= 1

@@ -2,6 +2,10 @@ from django.urls import path
 
 from people.views import (
     CampaignSendView,
+    DepartmentCreateView,
+    DepartmentDeleteView,
+    DepartmentListView,
+    DepartmentUpdateView,
     FamilyDeleteView,
     FamilyDetailView,
     FamilyListView,
@@ -12,6 +16,7 @@ from people.views import (
     PersonImportTemplateView,
     PersonImportView,
     PersonListView,
+    PersonUpdateRoleView,
     PersonUpdateView,
     PipelineBoardView,
     PipelineMoveView,
@@ -34,8 +39,13 @@ urlpatterns = [
     path("familias/<int:pk>/excluir/", FamilyDeleteView.as_view(), name="family_delete"),
     path("tags/", TagListView.as_view(), name="tag_list"),
     path("tags/<int:pk>/excluir/", TagDeleteView.as_view(), name="tag_delete"),
+    path("departamentos/", DepartmentListView.as_view(), name="department_list"),
+    path("departamentos/novo/", DepartmentCreateView.as_view(), name="department_create"),
+    path("departamentos/<int:pk>/editar/", DepartmentUpdateView.as_view(), name="department_update"),
+    path("departamentos/<int:pk>/excluir/", DepartmentDeleteView.as_view(), name="department_delete"),
     path("<int:pk>/", PersonDetailView.as_view(), name="detail"),
     path("<int:pk>/editar/", PersonUpdateView.as_view(), name="update"),
     path("<int:pk>/excluir/", PersonDeleteView.as_view(), name="delete"),
     path("<int:pk>/criar-acesso/", PersonCreateAccessView.as_view(), name="create_access"),
+    path("<int:pk>/atualizar-acesso/", PersonUpdateRoleView.as_view(), name="update_role"),
 ]

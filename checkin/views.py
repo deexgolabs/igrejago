@@ -6,20 +6,20 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView, View
 
-from accounts.mixins import CanManagePeopleMixin
+from accounts.mixins import CheckinAccessMixin
 from checkin.forms import CheckinForm, SalaInfantilForm
 from checkin.models import Checkin, SalaInfantil
 from core.qr import qr_data_uri
 from core.tenancy import TenantFormMixin
 
 
-class SalaInfantilListView(CanManagePeopleMixin, ListView):
+class SalaInfantilListView(CheckinAccessMixin, ListView):
     model = SalaInfantil
     template_name = "checkin/sala_list.html"
     context_object_name = "salas"
 
 
-class SalaInfantilCreateView(TenantFormMixin, CanManagePeopleMixin, CreateView):
+class SalaInfantilCreateView(TenantFormMixin, CheckinAccessMixin, CreateView):
     model = SalaInfantil
     form_class = SalaInfantilForm
     template_name = "checkin/sala_form.html"
@@ -30,7 +30,7 @@ class SalaInfantilCreateView(TenantFormMixin, CanManagePeopleMixin, CreateView):
         return super().form_valid(form)
 
 
-class SalaInfantilUpdateView(CanManagePeopleMixin, UpdateView):
+class SalaInfantilUpdateView(CheckinAccessMixin, UpdateView):
     model = SalaInfantil
     form_class = SalaInfantilForm
     template_name = "checkin/sala_form.html"
@@ -41,7 +41,7 @@ class SalaInfantilUpdateView(CanManagePeopleMixin, UpdateView):
         return super().form_valid(form)
 
 
-class SalaInfantilDeleteView(CanManagePeopleMixin, DeleteView):
+class SalaInfantilDeleteView(CheckinAccessMixin, DeleteView):
     model = SalaInfantil
     template_name = "checkin/sala_confirm_delete.html"
     success_url = reverse_lazy("checkin:sala_list")
@@ -51,7 +51,7 @@ class SalaInfantilDeleteView(CanManagePeopleMixin, DeleteView):
         return super().form_valid(form)
 
 
-class CheckinListView(CanManagePeopleMixin, ListView):
+class CheckinListView(CheckinAccessMixin, ListView):
     """Painel do dia — quem está com check-in ativo agora."""
 
     model = Checkin
@@ -62,7 +62,7 @@ class CheckinListView(CanManagePeopleMixin, ListView):
         return Checkin.objects.filter(checked_in_at__date=date.today()).select_related("sala")
 
 
-class CheckinCreateView(CanManagePeopleMixin, View):
+class CheckinCreateView(CheckinAccessMixin, View):
     template_name = "checkin/checkin_form.html"
 
     def get(self, request):
@@ -81,7 +81,7 @@ class CheckinCreateView(CanManagePeopleMixin, View):
         return render(request, self.template_name, {"form": form})
 
 
-class CheckinEtiquetaView(CanManagePeopleMixin, View):
+class CheckinEtiquetaView(CheckinAccessMixin, View):
     """Tela pra imprimir as duas etiquetas (criança + responsável) —
     `@media print` no template, sem gerar PDF: é só imprimir a própria
     página."""
@@ -99,7 +99,7 @@ class CheckinEtiquetaView(CanManagePeopleMixin, View):
         return render(request, self.template_name, context)
 
 
-class CheckinBuscarView(CanManagePeopleMixin, View):
+class CheckinBuscarView(CheckinAccessMixin, View):
     """Busca por código de retirada, pra confirmar o check-out."""
 
     template_name = "checkin/checkin_buscar.html"
@@ -118,7 +118,7 @@ class CheckinBuscarView(CanManagePeopleMixin, View):
         return render(request, self.template_name, {"checkin": checkin, "code": code})
 
 
-class CheckinDetalheView(CanManagePeopleMixin, View):
+class CheckinDetalheView(CheckinAccessMixin, View):
     """Endpoint que o QR code da etiqueta aponta — mesmo padrão de
     `events.RegistrationCheckInView`: só encoda essa URL, quem escaneia é
     sempre um membro da equipe já logado no navegador do próprio aparelho."""
@@ -130,7 +130,7 @@ class CheckinDetalheView(CanManagePeopleMixin, View):
         return render(request, self.template_name, {"checkin": checkin})
 
 
-class CheckinCheckoutView(CanManagePeopleMixin, View):
+class CheckinCheckoutView(CheckinAccessMixin, View):
     def post(self, request, pk):
         checkin = get_object_or_404(Checkin, pk=pk, checked_out_at__isnull=True)
         checkin.checked_out_at = timezone.now()

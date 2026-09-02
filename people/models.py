@@ -18,6 +18,14 @@ class Department(TenantModel):
         blank=True,
         related_name="led_departments",
         verbose_name="Líder",
+        help_text="Quem lidera esse departamento — se essa pessoa tiver login com o "
+                   "cargo \"Líder de Departamento\", o acesso dela fica restrito aos "
+                   "recursos deste departamento (ver accounts.User.is_department_leader).",
+    )
+    habilita_checkin = models.BooleanField(
+        "Usa check-in infantil", default=False,
+        help_text="Marque só pro departamento que atende o check-in infantil (ex.: "
+                   "Ministério Infantil/Kids) — libera essa tela pro líder dele.",
     )
 
     class Meta:

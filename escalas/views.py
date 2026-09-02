@@ -18,6 +18,15 @@ MESES_PT = [
 ]
 
 
+def _escalas_escopadas(user):
+    """`Escala.objects` (todas) pra Pastor/Secretaria; só as do(s)
+    departamento(s) liderado(s) pra um Líder de Departamento escopado —
+    reaproveitado nas 5 views abaixo pra não duplicar a regra."""
+    if user.is_unrestricted_manager:
+        return Escala.objects.all()
+    return Escala.objects.filter(department__in=user.led_departments)
+
+
 class EscalaCalendarioView(CanManagePeopleMixin, View):
     template_name = "escalas/escala_calendario.html"
 
@@ -28,7 +37,10 @@ class EscalaCalendarioView(CanManagePeopleMixin, View):
         cal = calendar.Calendar(firstweekday=6)  # domingo primeiro
 
         escalas_by_day = {}
-        for escala in Escala.objects.filter(date__year=year, date__month=month).select_related("department"):
+        escalas_do_mes = _escalas_escopadas(request.user).filter(
+            date__year=year, date__month=month
+        ).select_related("department")
+        for escala in escalas_do_mes:
             escalas_by_day.setdefault(escala.date, []).append(escala)
 
         # Monta a estrutura já pronta pro template (dia + escalas do dia
@@ -61,6 +73,9 @@ class EscalaDetailView(CanManagePeopleMixin, DetailView):
     template_name = "escalas/escala_detail.html"
     context_object_name = "escala"
 
+    def get_queryset(self):
+        return _escalas_escopadas(self.request.user)
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["voluntarios"] = self.object.voluntarios.select_related("person").order_by("person__full_name")
@@ -71,11 +86,11 @@ class EscalaCreateView(CanManagePeopleMixin, View):
     template_name = "escalas/escala_form.html"
 
     def get(self, request):
-        form = EscalaForm()
+        form = EscalaForm(user=request.user)
         return render(request, self.template_name, {"form": form})
 
     def post(self, request):
-        form = EscalaForm(request.POST)
+        form = EscalaForm(request.POST, user=request.user)
         if form.is_valid():
             escala = form.save(commit=False)
             escala.church = request.church
@@ -90,13 +105,13 @@ class EscalaUpdateView(CanManagePeopleMixin, View):
     template_name = "escalas/escala_form.html"
 
     def get(self, request, pk):
-        escala = get_object_or_404(Escala, pk=pk)
-        form = EscalaForm(instance=escala)
+        escala = get_object_or_404(_escalas_escopadas(request.user), pk=pk)
+        form = EscalaForm(instance=escala, user=request.user)
         return render(request, self.template_name, {"form": form, "object": escala})
 
     def post(self, request, pk):
-        escala = get_object_or_404(Escala, pk=pk)
-        form = EscalaForm(request.POST, instance=escala)
+        escala = get_object_or_404(_escalas_escopadas(request.user), pk=pk)
+        form = EscalaForm(request.POST, instance=escala, user=request.user)
         if form.is_valid():
             escala = form.save()
             _sync_voluntarios(request, escala, form.cleaned_data["voluntarios"])
@@ -108,6 +123,9 @@ class EscalaUpdateView(CanManagePeopleMixin, View):
 class EscalaDeleteView(CanManagePeopleMixin, DeleteView):
     model = Escala
     template_name = "escalas/escala_confirm_delete.html"
+
+    def get_queryset(self):
+        return _escalas_escopadas(self.request.user)
 
     def get_success_url(self):
         messages.success(self.request, "Escala removida.")

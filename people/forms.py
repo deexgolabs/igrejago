@@ -1,6 +1,7 @@
 from django import forms
 from django.utils import timezone
 
+from accounts.models import User
 from core.lgpd import privacy_consent_label
 from people.models import Department, Family, Person, Tag
 
@@ -111,6 +112,26 @@ class PublicVisitorForm(forms.ModelForm):
         if commit:
             person.save()
         return person
+
+
+class DepartmentForm(forms.ModelForm):
+    class Meta:
+        model = Department
+        fields = ["name", "leader", "habilita_checkin"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # `Person` é `TenantModel` — mesmo motivo do `PersonForm`.
+        self.fields["leader"].queryset = Person.objects.all()
+
+
+class PersonRoleForm(forms.Form):
+    """Editar o `role` (nível de acesso) do login de uma pessoa — hoje só
+    dava pra fazer isso pelo Django admin. QUEM ela lidera (departamento/
+    célula) não é setado aqui — é no cadastro do Departamento/Célula, no
+    campo `leader` que já existe (ver `DepartmentForm`/`cells.CellForm`)."""
+
+    role = forms.ChoiceField(label="Cargo de acesso", choices=User.Role.choices)
 
 
 class FamilyForm(forms.ModelForm):

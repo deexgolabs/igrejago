@@ -17,7 +17,7 @@ from django.views.generic import (
     View,
 )
 
-from accounts.mixins import CanManagePeopleMixin
+from accounts.mixins import CanManagePeopleMixin, IsChurchManagerMixin
 from accounts.models import User
 from core.billing import pode_adicionar_pessoa
 from core.ratelimit import RateLimitMixin
@@ -25,14 +25,16 @@ from core.tenancy import PublicChurchMixin, TenantFormMixin
 from notifications.models import MessageTemplate, WhatsAppMessage
 from people.forms import (
     CampaignForm,
+    DepartmentForm,
     FamilyForm,
     PersonForm,
     PersonImportForm,
     PersonImportFormSet,
+    PersonRoleForm,
     PublicVisitorForm,
     TagForm,
 )
-from people.models import Family, Person, Tag
+from people.models import Department, Family, Person, Tag
 
 AGE_BRACKETS = {
     "child": ("Criança (0-12)", 0, 12),
@@ -57,11 +59,17 @@ def _birth_date_range_for_bracket(bracket_key):
     return oldest_birth_date, newest_birth_date
 
 
-def _filter_people(get_params):
+def _filter_people(get_params, user=None):
     """Mesmo filtro (busca/cargo/status/faixa etária) usado pela listagem
     E pela campanha de WhatsApp em massa — extraído pra função pra não
-    duplicar a lógica entre as duas views."""
+    duplicar a lógica entre as duas views. `user` opcional: quando é um
+    Líder de Departamento escopado (não Pastor/Admin), restringe ao(s)
+    departamento(s) que ele lidera — sem isso um líder veria/mandaria
+    mensagem pra igreja toda."""
     qs = Person.objects.select_related("department").order_by("full_name")
+
+    if user is not None and not user.is_unrestricted_manager:
+        qs = qs.filter(department__in=user.led_departments)
 
     search = get_params.get("q", "").strip()
     if search:
@@ -91,7 +99,7 @@ class PersonListView(CanManagePeopleMixin, ListView):
     paginate_by = 25
 
     def get_queryset(self):
-        return _filter_people(self.request.GET)
+        return _filter_people(self.request.GET, self.request.user)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -121,6 +129,37 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
     model = Person
     template_name = "people/person_detail.html"
     context_object_name = "person"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        person = self.object
+        if self.request.user.is_unrestricted_manager and hasattr(person, "user_account"):
+            context["role_form"] = PersonRoleForm(initial={"role": person.user_account.role})
+        return context
+
+
+class PersonUpdateRoleView(IsChurchManagerMixin, View):
+    """Muda o `role` (cargo de acesso) do login de uma pessoa — só
+    Pastor/Secretaria (`IsChurchManagerMixin`), pra ninguém se promover
+    (ou promover terceiros) sozinho. QUEM ela lidera (departamento/
+    célula) continua sendo setado no cadastro do Departamento/Célula em
+    si (campo `leader`, já existente) — não aqui."""
+
+    def post(self, request, pk):
+        person = get_object_or_404(Person.objects.select_related("user_account"), pk=pk)
+        if not hasattr(person, "user_account"):
+            messages.error(request, f"{person.full_name} ainda não tem login no sistema.")
+            return redirect("people:detail", pk=pk)
+
+        form = PersonRoleForm(request.POST)
+        if form.is_valid():
+            user = person.user_account
+            user.role = form.cleaned_data["role"]
+            user.save(update_fields=["role"])
+            messages.success(request, f"Cargo de acesso de {person.full_name} atualizado.")
+        else:
+            messages.error(request, "Cargo inválido.")
+        return redirect("people:detail", pk=pk)
 
 
 class PersonCreateAccessView(CanManagePeopleMixin, View):
@@ -191,6 +230,14 @@ class PersonCreateView(TenantFormMixin, CanManagePeopleMixin, CreateView):
             )
             return self.form_invalid(form)
         form.instance.created_by = self.request.user
+        user = self.request.user
+        if not user.is_unrestricted_manager:
+            # Líder escopado: força o departamento pro próprio, mesmo que
+            # o POST tenha vindo com outro — não deixa "vazar" pessoa
+            # cadastrada por ele pra fora do departamento que ele lidera.
+            # `.first()` fica `None` se ele não liderar departamento
+            # nenhum (não ganha nenhum acesso extra nesse caso).
+            form.instance.department = user.led_departments.first()
         messages.success(self.request, "Pessoa cadastrada com sucesso.")
         return super().form_valid(form)
 
@@ -199,6 +246,13 @@ class PersonUpdateView(CanManagePeopleMixin, UpdateView):
     model = Person
     form_class = PersonForm
     template_name = "people/person_form.html"
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+        if not user.is_unrestricted_manager:
+            qs = qs.filter(department__in=user.led_departments)
+        return qs
 
     def form_valid(self, form):
         messages.success(self.request, "Cadastro atualizado com sucesso.")
@@ -209,6 +263,13 @@ class PersonDeleteView(CanManagePeopleMixin, DeleteView):
     model = Person
     template_name = "people/person_confirm_delete.html"
     success_url = reverse_lazy("people:list")
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+        if not user.is_unrestricted_manager:
+            qs = qs.filter(department__in=user.led_departments)
+        return qs
 
     def form_valid(self, form):
         messages.success(self.request, "Cadastro removido.")
@@ -241,6 +302,44 @@ class PipelineMoveView(CanManagePeopleMixin, View):
         person.pipeline_stage = stage
         person.save(update_fields=["pipeline_stage"])
         return HttpResponse(status=204)
+
+
+class DepartmentListView(IsChurchManagerMixin, ListView):
+    model = Department
+    template_name = "people/department_list.html"
+    context_object_name = "departments"
+
+
+class DepartmentCreateView(TenantFormMixin, IsChurchManagerMixin, CreateView):
+    model = Department
+    form_class = DepartmentForm
+    template_name = "people/department_form.html"
+    success_url = reverse_lazy("people:department_list")
+
+    def form_valid(self, form):
+        messages.success(self.request, "Departamento criado.")
+        return super().form_valid(form)
+
+
+class DepartmentUpdateView(IsChurchManagerMixin, UpdateView):
+    model = Department
+    form_class = DepartmentForm
+    template_name = "people/department_form.html"
+    success_url = reverse_lazy("people:department_list")
+
+    def form_valid(self, form):
+        messages.success(self.request, "Departamento atualizado.")
+        return super().form_valid(form)
+
+
+class DepartmentDeleteView(IsChurchManagerMixin, DeleteView):
+    model = Department
+    template_name = "people/department_confirm_delete.html"
+    success_url = reverse_lazy("people:department_list")
+
+    def form_valid(self, form):
+        messages.success(self.request, "Departamento removido.")
+        return super().form_valid(form)
 
 
 class FamilyListView(CanManagePeopleMixin, ListView):
@@ -541,14 +640,14 @@ class CampaignSendView(CanManagePeopleMixin, View):
     template_name = "people/campaign_form.html"
 
     def get(self, request):
-        people = _filter_people(request.GET).exclude(phone="")
+        people = _filter_people(request.GET, request.user).exclude(phone="")
         form = CampaignForm()
         return render(request, self.template_name, {
             "form": form, "recipient_count": people.count(), "templates": MessageTemplate.objects.all(),
         })
 
     def post(self, request):
-        people = _filter_people(request.GET).exclude(phone="")
+        people = _filter_people(request.GET, request.user).exclude(phone="")
         form = CampaignForm(request.POST)
         if not form.is_valid():
             return render(request, self.template_name, {"form": form, "recipient_count": people.count()})

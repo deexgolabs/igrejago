@@ -99,3 +99,58 @@ def person(db, church):
         status=Person.Status.ACTIVE,
         role=Person.Role.MEMBER,
     )
+
+
+@pytest.fixture
+def department(db, church, person):
+    """Um departamento liderado por `person` (fixture acima) — usado nos
+    testes de acesso escopado de Líder de Departamento (ver plano em
+    .claude/plans/quiet-enchanting-seahorse.md)."""
+    from people.models import Department
+
+    return Department.objects.create(church=church, name="Louvor", leader=person)
+
+
+@pytest.fixture
+def department_leader_user(db, church, person, department):
+    return User.objects.create_user(
+        username="lider-departamento", password="teste12345",
+        role=User.Role.LEADER, church=church, person=person,
+    )
+
+
+@pytest.fixture
+def department_leader_client(client, department_leader_user):
+    client.force_login(department_leader_user)
+    return client
+
+
+@pytest.fixture
+def cell_leader_person(db, church):
+    return Person.objects.create(
+        church=church, full_name="Líder de Célula", phone="62999996666",
+        is_member=True, status=Person.Status.ACTIVE, role=Person.Role.MEMBER,
+    )
+
+
+@pytest.fixture
+def cell(db, church, cell_leader_person):
+    from cells.models import Cell
+
+    return Cell.objects.create(church=church, name="Célula do Bairro", leader=cell_leader_person)
+
+
+@pytest.fixture
+def cell_leader_user(db, church, cell_leader_person, cell):
+    # `role=MEMBER` de propósito: liderar célula não exige o cargo "Líder
+    # de Departamento" — ver `accounts.User.is_cell_leader`.
+    return User.objects.create_user(
+        username="lider-celula", password="teste12345",
+        role=User.Role.MEMBER, church=church, person=cell_leader_person,
+    )
+
+
+@pytest.fixture
+def cell_leader_client(client, cell_leader_user):
+    client.force_login(cell_leader_user)
+    return client

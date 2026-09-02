@@ -37,5 +37,22 @@
     </p>
 </div>
 
+{% if role_form %}
+<div class="bg-white rounded-xl border border-slate-200 p-5 mt-4 max-w-sm">
+    <h2 class="text-sm font-semibold text-slate-700 mb-1">Cargo de acesso</h2>
+    <p class="text-xs text-slate-400 mb-3">
+        Define o que {{ person.full_name }} pode ver/fazer no sistema. Pra torná-la líder de um
+        departamento ou célula específico, atribua-a como líder no cadastro do
+        <a href="{% url 'people:department_list' %}" class="underline">Departamento</a> ou da Célula.
+    </p>
+    <form method="post" action="{% url 'people:update_role' person.pk %}" class="flex gap-2">
+        {% csrf_token %}
+        {{ role_form.role }}
+        <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm rounded-lg px-4 py-1.5 whitespace-nowrap">Salvar</button>
+    </form>
+</div>
+<style>#id_role { flex: 1; border: 1px solid #d1d5db; border-radius: 0.5rem; padding: 0.4rem 0.65rem; font-size: 0.875rem; }</style>
+{% endif %}
+
 <a href="{% url 'people:list' %}" class="inline-block mt-4 text-sm text-brand-700 hover:underline">← Voltar para a lista</a>
 {% endblock %}

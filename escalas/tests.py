@@ -165,3 +165,41 @@ class TestGerarEscalasMensais:
         escalas = Escala.objects.filter(department=department)
         assert escalas.exists()
         assert all(e.date.month == 2 and e.date.year == 2026 for e in escalas)
+
+
+@pytest.mark.django_db
+class TestEscalaDepartmentLeaderScopedAccess:
+    """`department`/`department_leader_client` vêm do conftest.py."""
+
+    def test_calendario_shows_only_own_department(self, department_leader_client, church, department, person):
+        outro_dept = Department.objects.create(church=church, name="Diaconato")
+        propria = Escala.objects.create(church=church, department=department, date="2026-09-06")
+        de_outro = Escala.objects.create(church=church, department=outro_dept, date="2026-09-06")
+
+        response = department_leader_client.get("/escalas/?ano=2026&mes=9")
+        all_escalas = [e for week in response.context["weeks"] for day in week for e in day["escalas"]]
+        assert propria in all_escalas
+        assert de_outro not in all_escalas
+
+    def test_cannot_open_escala_from_another_department_directly(self, department_leader_client, church):
+        outro_dept = Department.objects.create(church=church, name="Diaconato")
+        de_outro = Escala.objects.create(church=church, department=outro_dept, date="2026-09-06")
+        response = department_leader_client.get(f"/escalas/{de_outro.pk}/")
+        assert response.status_code == 404
+
+    def test_create_form_only_offers_own_department(self, department_leader_client, church, department):
+        Department.objects.create(church=church, name="Diaconato")
+        response = department_leader_client.get("/escalas/nova/")
+        department_choices = list(response.context["form"].fields["department"].queryset)
+        assert department_choices == [department]
+
+    def test_cannot_create_escala_for_another_department_via_post(self, department_leader_client, church, department):
+        outro_dept = Department.objects.create(church=church, name="Diaconato")
+        response = department_leader_client.post("/escalas/nova/", {
+            "department": outro_dept.pk, "date": "2026-09-06", "time": "", "title": "", "voluntarios": [],
+        })
+        assert response.status_code == 200  # form inválido, não cria
+        assert not Escala.objects.filter(department=outro_dept).exists()
+
+    def test_member_cannot_access_escalas(self, member_client):
+        assert member_client.get("/escalas/").status_code == 403

@@ -30,6 +30,72 @@ class TestUserRoleProperties:
         user = User.objects.create_user(username="sem-igreja", password="x", church=None)
         assert user.is_platform_owner is True
 
+    @pytest.mark.parametrize("role,unrestricted", [
+        (User.Role.PASTOR, True),
+        (User.Role.ADMIN, True),
+        (User.Role.LEADER, False),
+        (User.Role.MEMBER, False),
+    ])
+    def test_is_unrestricted_manager_by_role(self, role, unrestricted, church):
+        user = User.objects.create_user(username=f"um-{role}", password="x", role=role, church=church)
+        assert user.is_unrestricted_manager is unrestricted
+
+
+@pytest.mark.django_db
+class TestUserLeadershipScoping:
+    """`led_departments`/`led_cells` derivam de `Department.leader`/
+    `Cell.leader` — sem campo próprio em User (ver [[project_church_crm]]
+    e o plano em .claude/plans/quiet-enchanting-seahorse.md)."""
+
+    def test_led_departments_empty_without_person(self, church):
+        user = User.objects.create_user(username="sem-pessoa", password="x", role=User.Role.LEADER, church=church)
+        assert not user.led_departments.exists()
+        assert user.is_department_leader is False
+
+    def test_is_department_leader_requires_role_and_department(self, church, person):
+        from people.models import Department
+
+        Department.objects.create(church=church, name="Louvor", leader=person)
+        user = User.objects.create_user(
+            username="lider-sem-role", password="x", role=User.Role.MEMBER, church=church, person=person
+        )
+        # Lidera um departamento de verdade, mas o `role` ainda é Membro —
+        # não conta como "Líder de Departamento" escopado.
+        assert user.led_departments.count() == 1
+        assert user.is_department_leader is False
+
+        user.role = User.Role.LEADER
+        user.save(update_fields=["role"])
+        assert user.is_department_leader is True
+
+    def test_leader_role_without_department_is_not_a_department_leader(self, church, person):
+        user = User.objects.create_user(
+            username="lider-sem-depto", password="x", role=User.Role.LEADER, church=church, person=person
+        )
+        assert user.is_department_leader is False
+
+    def test_is_cell_leader_independent_of_role(self, church, person):
+        from cells.models import Cell
+
+        Cell.objects.create(church=church, name="Célula do Bairro", leader=person)
+        member = User.objects.create_user(
+            username="lider-celula", password="x", role=User.Role.MEMBER, church=church, person=person
+        )
+        assert member.is_cell_leader is True
+
+    def test_has_checkin_access_requires_department_flag(self, church, person):
+        from people.models import Department
+
+        dept = Department.objects.create(church=church, name="Infantil", leader=person)
+        user = User.objects.create_user(
+            username="lider-infantil", password="x", role=User.Role.LEADER, church=church, person=person
+        )
+        assert user.has_checkin_access is False
+
+        dept.habilita_checkin = True
+        dept.save(update_fields=["habilita_checkin"])
+        assert user.has_checkin_access is True
+
 
 @pytest.mark.django_db
 class TestCreateAccess:

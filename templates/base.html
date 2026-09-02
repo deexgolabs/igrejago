@@ -49,7 +49,7 @@
             <a href="{% url 'core:gestao_dashboard' %}" class="text-white/85 hover:text-white">Painel</a>
             <a href="{% url 'core:gestao_church_list' %}" class="text-white/85 hover:text-white">Igrejas</a>
             <a href="{% url 'core:gestao_commands' %}" class="text-white/85 hover:text-white">Comandos</a>
-            {% elif user.can_manage_people %}
+            {% elif user.is_unrestricted_manager %}
             <a href="{% url 'people:list' %}" class="text-white/85 hover:text-white">Pessoas</a>
             <a href="{% url 'events:manage_list' %}" class="text-white/85 hover:text-white">Eventos</a>
             <a href="{% url 'finance:list' %}" class="text-white/85 hover:text-white">Financeiro</a>
@@ -65,6 +65,7 @@
                 </button>
                 <div id="nav-mais" class="hidden absolute right-0 mt-2 w-48 bg-white border border-slate-200 rounded-lg shadow-lg py-1 z-10 text-slate-700">
                     <a href="{% url 'linkbio:manage' %}" class="block px-4 py-2 hover:bg-slate-50">Link na Bio</a>
+                    <a href="{% url 'people:department_list' %}" class="block px-4 py-2 hover:bg-slate-50">Departamentos</a>
                     <a href="{% url 'cells:list' %}" class="block px-4 py-2 hover:bg-slate-50">Células</a>
                     <a href="{% url 'checkin:lista' %}" class="block px-4 py-2 hover:bg-slate-50">Check-in infantil</a>
                     <a href="{% url 'escalas:calendario' %}" class="block px-4 py-2 hover:bg-slate-50">Escalas</a>
@@ -73,6 +74,34 @@
                     <a href="{% url 'core:settings' %}" class="block px-4 py-2 hover:bg-slate-50 border-t border-slate-100">Configurações</a>
                 </div>
             </div>
+            {% elif user.can_manage_people %}
+            {# Líder de Departamento escopado — só os recursos do próprio departamento. #}
+            <a href="{% url 'people:list' %}" class="text-white/85 hover:text-white">Pessoas</a>
+            <a href="{% url 'escalas:calendario' %}" class="text-white/85 hover:text-white">Escalas</a>
+            <a href="{% url 'notifications:queue' %}" class="text-white/85 hover:text-white">Mensagens</a>
+            {% if user.has_checkin_access or user.is_cell_leader %}
+            <div class="relative">
+                <button type="button"
+                        onclick="document.getElementById('nav-mais').classList.toggle('hidden'); event.stopPropagation();"
+                        class="text-white/85 hover:text-white flex items-center gap-1">
+                    Mais
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                </button>
+                <div id="nav-mais" class="hidden absolute right-0 mt-2 w-48 bg-white border border-slate-200 rounded-lg shadow-lg py-1 z-10 text-slate-700">
+                    {% if user.has_checkin_access %}
+                    <a href="{% url 'checkin:lista' %}" class="block px-4 py-2 hover:bg-slate-50">Check-in infantil</a>
+                    {% endif %}
+                    {% if user.is_cell_leader %}
+                    <a href="{% url 'cells:list' %}" class="block px-4 py-2 hover:bg-slate-50">Células</a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+            {% elif user.is_cell_leader %}
+            {# Membro comum que só lidera célula — nem entra em can_manage_people. #}
+            <a href="{% url 'cells:list' %}" class="text-white/85 hover:text-white">Células</a>
             {% endif %}
             <span class="text-white/40">|</span>
             <a href="{% url 'core:manual' %}" class="text-white/85 hover:text-white">Manual</a>
@@ -98,11 +127,12 @@
         <a href="{% url 'core:gestao_dashboard' %}" class="block text-white/85 hover:text-white">Painel</a>
         <a href="{% url 'core:gestao_church_list' %}" class="block text-white/85 hover:text-white">Igrejas</a>
         <a href="{% url 'core:gestao_commands' %}" class="block text-white/85 hover:text-white">Comandos</a>
-        {% elif user.can_manage_people %}
+        {% elif user.is_unrestricted_manager %}
         <a href="{% url 'people:list' %}" class="block text-white/85 hover:text-white">Pessoas</a>
         <a href="{% url 'events:manage_list' %}" class="block text-white/85 hover:text-white">Eventos</a>
         <a href="{% url 'linkbio:manage' %}" class="block text-white/85 hover:text-white">Link na Bio</a>
         <a href="{% url 'finance:list' %}" class="block text-white/85 hover:text-white">Financeiro</a>
+        <a href="{% url 'people:department_list' %}" class="block text-white/85 hover:text-white">Departamentos</a>
         <a href="{% url 'cells:list' %}" class="block text-white/85 hover:text-white">Células</a>
         <a href="{% url 'checkin:lista' %}" class="block text-white/85 hover:text-white">Check-in infantil</a>
         <a href="{% url 'escalas:calendario' %}" class="block text-white/85 hover:text-white">Escalas</a>
@@ -110,6 +140,20 @@
         <a href="{% url 'notifications:queue' %}" class="block text-white/85 hover:text-white">Mensagens</a>
         <a href="{% url 'custom_forms:list' %}" class="block text-white/85 hover:text-white">Formulários</a>
         <a href="{% url 'core:settings' %}" class="block text-white/85 hover:text-white">Configurações</a>
+        {% elif user.can_manage_people %}
+        {# Líder de Departamento escopado. #}
+        <a href="{% url 'people:list' %}" class="block text-white/85 hover:text-white">Pessoas</a>
+        <a href="{% url 'escalas:calendario' %}" class="block text-white/85 hover:text-white">Escalas</a>
+        <a href="{% url 'notifications:queue' %}" class="block text-white/85 hover:text-white">Mensagens</a>
+        {% if user.has_checkin_access %}
+        <a href="{% url 'checkin:lista' %}" class="block text-white/85 hover:text-white">Check-in infantil</a>
+        {% endif %}
+        {% if user.is_cell_leader %}
+        <a href="{% url 'cells:list' %}" class="block text-white/85 hover:text-white">Células</a>
+        {% endif %}
+        {% elif user.is_cell_leader %}
+        {# Membro comum que só lidera célula. #}
+        <a href="{% url 'cells:list' %}" class="block text-white/85 hover:text-white">Células</a>
         {% endif %}
         <a href="{% url 'core:manual' %}" class="block text-white/85 hover:text-white">Manual</a>
         <a href="{% url 'accounts:totp_status' %}" class="block text-white/85 hover:text-white">Segurança</a>
