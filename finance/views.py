@@ -19,11 +19,12 @@ from accounts.mixins import IsChurchManagerMixin
 from core.models import Church
 from core.qr import qr_data_uri
 from core.tenancy import TenantFormMixin
-from core.reports import generate_donation_receipt_pdf
+from core.reports import generate_annual_donation_receipt_pdf, generate_donation_receipt_pdf
 from events.pix import build_pix_payload
 from finance import mercadopago
-from finance.forms import DonationAmountForm, RecurringPledgeForm, TransactionForm
+from finance.forms import DonationAmountForm, RecurringPledgeForm, RecurringPledgeSubscribeForm, TransactionForm
 from finance.models import Budget, Donation, RecurringPledge, Transaction
+from people.models import Person
 
 logger = logging.getLogger(__name__)
 
@@ -288,6 +289,196 @@ class RecurringPledgeDeleteView(IsChurchManagerMixin, View):
         get_object_or_404(RecurringPledge, pk=pk).delete()
         messages.success(request, "Contribuição recorrente removida.")
         return redirect("finance:recurring_pledges")
+
+
+class RecurringPledgeSubscribeView(LoginRequiredMixin, View):
+    """Assinatura de dízimo mensal AUTOMÁTICA via Mercado Pago, iniciada
+    pelo PRÓPRIO membro no Portal — diferente de `RecurringPledgeListView`
+    (secretaria cadastrando um compromisso manual de qualquer pessoa).
+    Mesmo esqueleto de `DonationMercadoPagoStartView` (preferência única):
+    aqui é uma assinatura (Preapproval), API de Assinaturas."""
+
+    template_name = "finance/recurring_pledge_subscribe.html"
+
+    def get(self, request):
+        return render(request, self.template_name, {
+            "form": RecurringPledgeSubscribeForm(), "pledge": self._minha_assinatura(request),
+        })
+
+    def post(self, request):
+        if not request.user.person_id:
+            messages.error(request, "Seu login ainda não está vinculado a um cadastro de pessoa.")
+            return redirect("core:dashboard")
+        church_config = request.church
+        if not church_config.mercadopago_configured:
+            messages.error(request, "Pagamento via Mercado Pago não está configurado.")
+            return redirect("core:dashboard")
+
+        form = RecurringPledgeSubscribeForm(request.POST)
+        if not form.is_valid():
+            return render(request, self.template_name, {"form": form, "pledge": self._minha_assinatura(request)})
+
+        person = request.user.person
+        pledge = RecurringPledge.objects.create(
+            church=church_config, person=person, active=False,
+            monthly_amount=form.cleaned_data["monthly_amount"], due_day=form.cleaned_data["due_day"],
+        )
+        base_url = request.build_absolute_uri("/")[:-1]
+        notification_url = (
+            base_url + reverse("finance:recurring_pledge_webhook") + f"?church_id={church_config.pk}"
+        )
+        try:
+            preapproval_id, init_point = mercadopago.criar_assinatura_dizimo(
+                access_token=church_config.mercadopago_access_token,
+                pledge=pledge,
+                payer_email=person.email or request.user.email,
+                back_url=base_url + reverse("core:dashboard"),
+                notification_url=notification_url,
+            )
+        except Exception:
+            logger.exception("Falha ao criar assinatura de dízimo no Mercado Pago (pledge %s)", pledge.pk)
+            pledge.delete()
+            messages.error(request, "Não foi possível iniciar a assinatura pelo Mercado Pago agora. Tente de novo em instantes.")
+            return redirect("finance:recurring_pledge_subscribe")
+        pledge.mercadopago_preapproval_id = preapproval_id
+        pledge.save(update_fields=["mercadopago_preapproval_id"])
+        return redirect(init_point)
+
+    @staticmethod
+    def _minha_assinatura(request):
+        if not request.user.person_id:
+            return None
+        return RecurringPledge.objects.filter(
+            person=request.user.person
+        ).exclude(mercadopago_preapproval_id="").order_by("-created_at").first()
+
+
+class RecurringPledgeCancelView(LoginRequiredMixin, View):
+    """Cancela uma assinatura de dízimo — o próprio dono (`person ==
+    request.user.person`) ou quem gerencia o financeiro. Diferente de
+    `RecurringPledgeDeleteView` (secretaria removendo um compromisso
+    manual): essa aqui de fato desliga a cobrança no Mercado Pago antes
+    de desativar localmente."""
+
+    def post(self, request, pk):
+        pledge = get_object_or_404(RecurringPledge, pk=pk)
+        is_owner = pledge.person_id and request.user.person_id == pledge.person_id
+        if not (is_owner or request.user.is_unrestricted_manager):
+            raise Http404
+        if pledge.mercadopago_preapproval_id:
+            try:
+                mercadopago.cancelar_assinatura(
+                    access_token=pledge.church.mercadopago_access_token,
+                    preapproval_id=pledge.mercadopago_preapproval_id,
+                )
+                pledge.mercadopago_status = "cancelled"
+                pledge.save(update_fields=["mercadopago_status"])
+            except Exception:
+                logger.exception("Falha ao cancelar assinatura no Mercado Pago (pledge %s)", pledge.pk)
+                messages.error(request, "Não foi possível cancelar no Mercado Pago agora. Tente de novo em instantes.")
+                return redirect("finance:recurring_pledges" if request.user.is_unrestricted_manager else "core:dashboard")
+        pledge.active = False
+        pledge.save(update_fields=["active"])
+        messages.success(request, "Assinatura cancelada.")
+        return redirect("finance:recurring_pledges" if request.user.is_unrestricted_manager else "core:dashboard")
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class RecurringPledgeMercadoPagoWebhookView(View):
+    """Mesmo padrão de `DonationWebhookView` — igreja vem do `?church_id=`
+    embutido na notification_url, nunca confia no corpo do POST, sempre
+    reconsulta. O Mercado Pago manda 2 tipos de notificação pra
+    assinatura: `subscription_preapproval` (mudança de status da
+    assinatura em si — autorizada/pausada/cancelada) e
+    `subscription_authorized_payment` (uma cobrança mensal específica —
+    é aqui que nasce o `Transaction` de cada mês)."""
+
+    def post(self, request):
+        topic = request.GET.get("type") or request.GET.get("topic")
+        object_id = request.GET.get("data.id") or request.GET.get("id")
+        church_id = request.GET.get("church_id")
+        if not object_id or not church_id:
+            return HttpResponseBadRequest("missing id or church_id")
+
+        church_config = get_object_or_404(Church, pk=church_id)
+        if not church_config.mercadopago_configured:
+            return HttpResponseBadRequest("mercadopago not configured")
+
+        if topic == "subscription_preapproval":
+            self._processar_preapproval(church_config, object_id)
+        elif topic == "subscription_authorized_payment":
+            self._processar_pagamento_autorizado(church_config, object_id)
+        return HttpResponse(status=200)
+
+    @staticmethod
+    def _processar_preapproval(church_config, preapproval_id):
+        try:
+            data = mercadopago.consultar_assinatura(
+                access_token=church_config.mercadopago_access_token, preapproval_id=preapproval_id,
+            )
+        except Exception:
+            logger.exception("Falha ao reconsultar assinatura %s no Mercado Pago", preapproval_id)
+            return
+        pledge = RecurringPledge.todas_as_igrejas.filter(
+            mercadopago_preapproval_id=preapproval_id, church=church_config,
+        ).first()
+        if not pledge:
+            return
+        status = data.get("status", "")
+        pledge.mercadopago_status = status
+        pledge.active = status == "authorized"
+        pledge.save(update_fields=["mercadopago_status", "active"])
+
+    @staticmethod
+    def _processar_pagamento_autorizado(church_config, payment_id):
+        try:
+            data = mercadopago.consultar_pagamento_autorizado(
+                access_token=church_config.mercadopago_access_token, payment_id=payment_id,
+            )
+        except Exception:
+            logger.exception("Falha ao reconsultar pagamento autorizado %s no Mercado Pago", payment_id)
+            return
+        if data.get("status") != "approved":
+            return
+        preapproval_id = data.get("preapproval_id", "")
+        pledge = RecurringPledge.todas_as_igrejas.filter(
+            mercadopago_preapproval_id=preapproval_id, church=church_config,
+        ).first()
+        if not pledge:
+            return
+        Transaction.todas_as_igrejas.create(
+            church=church_config,
+            type=Transaction.Type.INCOME, category=Transaction.Category.TITHE,
+            amount=data.get("transaction_amount") or pledge.monthly_amount,
+            date=date.today(), description="Dízimo automático via Mercado Pago",
+            person=pledge.person, payment_method=Transaction.PaymentMethod.CARD,
+        )
+
+
+class AnnualDonationReceiptPDFView(LoginRequiredMixin, View):
+    """Recibo ANUAL consolidado — o próprio contribuinte baixa o dele
+    (`?ano=`, padrão o ano corrente); pra baixar de outra pessoa, só quem
+    gerencia pessoas (mesmo critério de `DonationReceiptPDFView`)."""
+
+    def get(self, request, pk=None):
+        if pk:
+            if not request.user.can_manage_people:
+                raise Http404
+            person = get_object_or_404(Person, pk=pk)
+        else:
+            if not request.user.person_id:
+                raise Http404
+            person = request.user.person
+
+        try:
+            year = int(request.GET.get("ano", date.today().year))
+        except ValueError:
+            year = date.today().year
+
+        pdf_bytes = generate_annual_donation_receipt_pdf(request.church, person, year)
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="recibo-anual-{year}-{person.pk}.pdf"'
+        return response
 
 
 class DonationCreateView(LoginRequiredMixin, View):

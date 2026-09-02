@@ -97,10 +97,15 @@ class Budget(TenantModel):
 
 
 class RecurringPledge(TenantModel):
-    """Compromisso de dízimo/contribuição mensal recorrente — só o
-    compromisso em si; o pagamento de cada mês continua sendo um
-    `Transaction` normal (categoria TITHE) lançado à parte. O relatório em
-    `RecurringPledgeListView` cruza os dois pra mostrar quem está em dia."""
+    """Compromisso de dízimo/contribuição mensal recorrente. Duas origens
+    possíveis: cadastrado à mão pela secretaria (`mercadopago_preapproval_id`
+    em branco — pagamento de cada mês lançado manualmente como
+    `Transaction`), ou assinado pelo próprio membro no Portal via Mercado
+    Pago (`mercadopago_preapproval_id` preenchido — a cobrança e o
+    `Transaction` de cada mês são automáticos, ver
+    `RecurringPledgeMercadoPagoWebhookView`). O relatório em
+    `RecurringPledgeListView` cruza com `Transaction` pra mostrar quem
+    está em dia, dos dois jeitos."""
 
     person = models.ForeignKey(
         "people.Person", on_delete=models.CASCADE,
@@ -111,6 +116,14 @@ class RecurringPledge(TenantModel):
         "Dia de vencimento", default=10, help_text="Dia do mês (1 a 28).",
     )
     active = models.BooleanField("Ativo", default=True)
+    mercadopago_preapproval_id = models.CharField(
+        "ID da assinatura no Mercado Pago", max_length=100, blank=True,
+        help_text="Preenchido só quando o membro assinou pelo Portal — em branco = compromisso manual.",
+    )
+    mercadopago_status = models.CharField(
+        "Status da assinatura no Mercado Pago", max_length=30, blank=True,
+        help_text="Espelha o status real da API (authorized/paused/cancelled) — nunca decidido localmente.",
+    )
     created_at = models.DateTimeField("Criado em", auto_now_add=True)
 
     class Meta:
@@ -120,6 +133,10 @@ class RecurringPledge(TenantModel):
 
     def __str__(self):
         return f"{self.person.full_name} — R$ {self.monthly_amount}/mês"
+
+    @property
+    def is_mercadopago(self):
+        return bool(self.mercadopago_preapproval_id)
 
 
 class Donation(TenantModel):

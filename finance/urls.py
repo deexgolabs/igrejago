@@ -1,6 +1,7 @@
 from django.urls import path
 
 from finance.views import (
+    AnnualDonationReceiptPDFView,
     BudgetView,
     DonationConfirmPixView,
     DonationCreateView,
@@ -9,8 +10,11 @@ from finance.views import (
     DonationPayView,
     DonationReceiptPDFView,
     DonationWebhookView,
+    RecurringPledgeCancelView,
     RecurringPledgeDeleteView,
     RecurringPledgeListView,
+    RecurringPledgeMercadoPagoWebhookView,
+    RecurringPledgeSubscribeView,
     RecurringPledgeToggleView,
     TransactionCreateView,
     TransactionDeleteView,
@@ -34,6 +38,13 @@ urlpatterns = [
     path("recorrentes/", RecurringPledgeListView.as_view(), name="recurring_pledges"),
     path("recorrentes/<int:pk>/alternar/", RecurringPledgeToggleView.as_view(), name="recurring_pledge_toggle"),
     path("recorrentes/<int:pk>/excluir/", RecurringPledgeDeleteView.as_view(), name="recurring_pledge_delete"),
+    path("recorrentes/assinar/", RecurringPledgeSubscribeView.as_view(), name="recurring_pledge_subscribe"),
+    path("recorrentes/<int:pk>/cancelar/", RecurringPledgeCancelView.as_view(), name="recurring_pledge_cancel"),
+    path(
+        "recorrentes/webhook/mercadopago/",
+        RecurringPledgeMercadoPagoWebhookView.as_view(),
+        name="recurring_pledge_webhook",
+    ),
 
     path("doacoes/", DonationListView.as_view(), name="donation_list"),
     path("doacoes/nova/", DonationCreateView.as_view(), name="donation_create"),
@@ -42,4 +53,7 @@ urlpatterns = [
     path("doacoes/<int:pk>/confirmar/", DonationConfirmPixView.as_view(), name="donation_confirm"),
     path("doacoes/<int:pk>/recibo.pdf", DonationReceiptPDFView.as_view(), name="donation_receipt"),
     path("doacoes/webhook/mercadopago/", DonationWebhookView.as_view(), name="donation_webhook"),
+
+    path("recibo-anual.pdf", AnnualDonationReceiptPDFView.as_view(), name="annual_donation_receipt"),
+    path("recibo-anual/<int:pk>.pdf", AnnualDonationReceiptPDFView.as_view(), name="annual_donation_receipt_for"),
 ]

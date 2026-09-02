@@ -99,6 +99,55 @@ def generate_donation_receipt_pdf(church_config, donation):
     return buffer.getvalue()
 
 
+def generate_annual_donation_receipt_pdf(church_config, person, year):
+    """Recibo ANUAL consolidado de contribuições — soma tudo que a pessoa
+    deu no ano (dízimo, oferta, doação avulsa — via `Transaction`, que já
+    é gerado automaticamente tanto pro caminho manual quanto pelo webhook
+    do Mercado Pago, ver `finance.views`), pra guardar/declarar no Imposto
+    de Renda. Mesmo aviso de `generate_donation_receipt_pdf`: não é nota
+    fiscal nem recibo dedutível de verdade, é só um comprovante."""
+    lancamentos = Transaction.objects.filter(
+        person=person, type=Transaction.Type.INCOME,
+        category__in=[Transaction.Category.TITHE, Transaction.Category.OFFERING, Transaction.Category.DONATION],
+        date__year=year,
+    ).order_by("date")
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=3 * cm, bottomMargin=3 * cm)
+    styles = getSampleStyleSheet()
+    story = []
+
+    story.append(Paragraph(church_config.name or "Church CRM", styles["Title"]))
+    story.append(Paragraph(f"Recibo anual de contribuições — {year}", styles["Heading2"]))
+    story.append(Spacer(1, 0.5 * cm))
+    story.append(Paragraph(f"Contribuinte: {person.full_name}", styles["Normal"]))
+    story.append(Spacer(1, 1 * cm))
+
+    category_labels = dict(Transaction.Category.choices)
+    rows = [["Data", "Categoria", "Valor (R$)"]]
+    total = 0
+    for lancamento in lancamentos:
+        rows.append([
+            lancamento.date.strftime("%d/%m/%Y"),
+            category_labels.get(lancamento.category, lancamento.category),
+            f"{lancamento.amount:.2f}",
+        ])
+        total += lancamento.amount
+    rows.append(["", "Total", f"{total:.2f}"])
+    story.append(_styled_table(rows))
+
+    story.append(Spacer(1, 1.2 * cm))
+    story.append(Paragraph(
+        f"Comprovante gerado em {date.today().strftime('%d/%m/%Y')} — não substitui recibo fiscal "
+        "nem tem valor jurídico de doação dedutível; é um registro pra sua própria guarda.",
+        styles["Normal"],
+    ))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
 def _styled_table(data):
     table = Table(data, colWidths=[8 * cm, 6 * cm])
     table.setStyle(TableStyle([

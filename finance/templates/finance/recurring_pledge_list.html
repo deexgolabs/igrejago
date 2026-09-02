@@ -30,6 +30,7 @@
                 <th class="text-left px-4 py-3">Pessoa</th>
                 <th class="text-left px-4 py-3">Valor mensal</th>
                 <th class="text-left px-4 py-3">Vencimento</th>
+                <th class="text-left px-4 py-3">Origem</th>
                 <th class="text-left px-4 py-3">Este mês</th>
                 <th class="text-right px-4 py-3">Ações</th>
             </tr>
@@ -41,6 +42,13 @@
                 <td class="px-4 py-3 text-slate-600">R$ {{ row.pledge.monthly_amount }}</td>
                 <td class="px-4 py-3 text-slate-600">dia {{ row.pledge.due_day }}</td>
                 <td class="px-4 py-3">
+                    {% if row.pledge.is_mercadopago %}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full bg-sky-50 text-sky-700">Via Mercado Pago</span>
+                    {% else %}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full bg-slate-100 text-slate-500">Manual</span>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-3">
                     {% if row.em_dia %}
                     <span class="text-xs font-medium px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">Em dia</span>
                     {% else %}
@@ -48,6 +56,12 @@
                     {% endif %}
                 </td>
                 <td class="px-4 py-3 text-right space-x-2">
+                    {% if row.pledge.is_mercadopago %}
+                    <form method="post" action="{% url 'finance:recurring_pledge_cancel' row.pledge.pk %}" class="inline" onsubmit="return confirm('Cancelar essa assinatura no Mercado Pago?');">
+                        {% csrf_token %}
+                        <button type="submit" class="text-slate-500 hover:text-red-600 text-sm">Cancelar assinatura</button>
+                    </form>
+                    {% else %}
                     <form method="post" action="{% url 'finance:recurring_pledge_toggle' row.pledge.pk %}" class="inline">
                         {% csrf_token %}
                         <button type="submit" class="text-slate-500 hover:text-brand-700 text-sm">{% if row.pledge.active %}Pausar{% else %}Reativar{% endif %}</button>
@@ -56,10 +70,11 @@
                         {% csrf_token %}
                         <button type="submit" class="text-slate-500 hover:text-red-600 text-sm">Excluir</button>
                     </form>
+                    {% endif %}
                 </td>
             </tr>
             {% empty %}
-            <tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">Nenhuma contribuição recorrente ativa.</td></tr>
+            <tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">Nenhuma contribuição recorrente ativa.</td></tr>
             {% endfor %}
         </tbody>
     </table>

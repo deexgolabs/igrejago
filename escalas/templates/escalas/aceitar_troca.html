@@ -1,0 +1,38 @@
+{% extends "public_base.html" %}
+{% block title %}Aceitar troca de escala{% endblock %}
+{% block content %}
+<div class="bg-white border border-slate-200 rounded-xl p-6 text-center">
+    {% if aceita_agora %}
+        <h1 class="text-lg font-bold text-slate-900 mb-2">Combinado! ✓</h1>
+        <p class="text-sm text-slate-500">Você assumiu a escala — em instantes chega um WhatsApp com o link pra confirmar presença.</p>
+    {% elif ja_resolvida %}
+        <h1 class="text-lg font-bold text-slate-900 mb-2">Essa troca já foi resolvida</h1>
+        <p class="text-sm text-slate-500">Outra pessoa já aceitou (ou o pedido foi cancelado) antes de você.</p>
+    {% else %}
+        <h1 class="text-lg font-bold text-slate-900 mb-1">Pedido de troca de escala</h1>
+        <p class="text-sm text-slate-500 mb-4">
+            {{ troca.escala_voluntario.person.full_name }} não vai poder servir em
+            {{ troca.escala_voluntario.escala.department.name }} —
+            {{ troca.escala_voluntario.escala.date|date:"d/m/Y" }}
+            {% if troca.escala_voluntario.escala.time %}às {{ troca.escala_voluntario.escala.time|date:"H:i" }}{% endif %}
+            e está passando a vez.
+        </p>
+        <form method="post" class="form-padrao space-y-3" onsubmit="return confirm('Confirma que você vai assumir essa escala?');">
+            {% csrf_token %}
+            <p>
+                <label class="block text-xs font-semibold text-slate-500 mb-1">Seu nome (na lista de voluntários do departamento)</label>
+                <select name="person_id" required
+                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                    <option value="">Selecione...</option>
+                    {% for colega in colegas %}
+                    <option value="{{ colega.pk }}">{{ colega.full_name }}</option>
+                    {% endfor %}
+                </select>
+            </p>
+            <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg px-4 py-2.5 w-full">
+                Assumir essa escala
+            </button>
+        </form>
+    {% endif %}
+</div>
+{% endblock %}

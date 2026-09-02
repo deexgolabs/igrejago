@@ -8,6 +8,11 @@
         <button id="btn-ativar-push" type="button" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Ativar notificações</button>
         {% endif %}
         <a href="{% url 'core:meus_dados' %}" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Meus dados</a>
+        {% if person.department %}
+        <a href="{% url 'escalas:minha_indisponibilidade' %}" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Minha disponibilidade</a>
+        {% endif %}
+        <a href="{% url 'finance:annual_donation_receipt' %}" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Recibo anual</a>
+        <a href="{% url 'finance:recurring_pledge_subscribe' %}" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Dízimo automático</a>
         <a href="{% url 'finance:donation_create' %}" class="text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg px-3 py-2">Fazer doação</a>
     </div>
 </div>

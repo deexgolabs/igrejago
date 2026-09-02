@@ -1,4 +1,5 @@
 from datetime import date
+from unittest.mock import patch
 
 import pytest
 
@@ -194,5 +195,168 @@ class TestDonationReceipt:
     def test_anonymous_cannot_download_receipt(self, client, person, church_config):
         donation = Donation.objects.create(church=church_config, person=person, amount=100, status=Donation.Status.PAID)
         response = client.get(f"/financeiro/doacoes/{donation.pk}/recibo.pdf")
+        assert response.status_code == 302
+        assert "/accounts/login/" in response.url
+
+
+@pytest.mark.django_db
+class TestRecurringPledgeSubscribe:
+    def test_member_subscribes_and_is_redirected_to_mercadopago(self, member_client, member_user, person, church_config):
+        member_user.person = person
+        member_user.save()
+        church_config.mercadopago_access_token = "fake-token"
+        church_config.save()
+
+        with patch(
+            "finance.views.mercadopago.criar_assinatura_dizimo",
+            return_value=("PRE123", "https://mercadopago.com/checkout/PRE123"),
+        ):
+            response = member_client.post("/financeiro/recorrentes/assinar/", {
+                "monthly_amount": "100.00", "due_day": "10",
+            })
+        assert response.status_code == 302
+        assert response.url == "https://mercadopago.com/checkout/PRE123"
+        pledge = RecurringPledge.objects.get(person=person)
+        assert pledge.mercadopago_preapproval_id == "PRE123"
+        assert pledge.active is False  # só vira True quando o webhook confirmar "authorized"
+
+    def test_api_failure_deletes_pledge_and_shows_error(self, member_client, member_user, person, church_config):
+        member_user.person = person
+        member_user.save()
+        church_config.mercadopago_access_token = "fake-token"
+        church_config.save()
+
+        with patch("finance.views.mercadopago.criar_assinatura_dizimo", side_effect=Exception("timeout")):
+            response = member_client.post("/financeiro/recorrentes/assinar/", {
+                "monthly_amount": "100.00", "due_day": "10",
+            })
+        assert response.status_code == 302
+        assert not RecurringPledge.objects.filter(person=person).exists()
+
+    def test_without_mercadopago_configured_shows_error(self, member_client, member_user, person):
+        member_user.person = person
+        member_user.save()
+        response = member_client.post("/financeiro/recorrentes/assinar/", {
+            "monthly_amount": "100.00", "due_day": "10",
+        })
+        assert response.status_code == 302
+        assert not RecurringPledge.objects.exists()
+
+
+@pytest.mark.django_db
+class TestRecurringPledgeCancel:
+    def test_owner_can_cancel_own_subscription(self, member_client, member_user, person, church):
+        member_user.person = person
+        member_user.save()
+        pledge = RecurringPledge.objects.create(
+            church=church, person=person, monthly_amount=100, mercadopago_preapproval_id="PRE123",
+        )
+        with patch("finance.views.mercadopago.cancelar_assinatura", return_value={"status": "cancelled"}):
+            response = member_client.post(f"/financeiro/recorrentes/{pledge.pk}/cancelar/")
+        assert response.status_code == 302
+        pledge.refresh_from_db()
+        assert pledge.active is False
+        assert pledge.mercadopago_status == "cancelled"
+
+    def test_unrelated_member_cannot_cancel(self, member_client, person, church):
+        pledge = RecurringPledge.objects.create(
+            church=church, person=person, monthly_amount=100, mercadopago_preapproval_id="PRE123",
+        )
+        response = member_client.post(f"/financeiro/recorrentes/{pledge.pk}/cancelar/")
+        assert response.status_code == 404
+
+    def test_pastor_can_cancel_anyones_subscription(self, pastor_client, person, church):
+        pledge = RecurringPledge.objects.create(
+            church=church, person=person, monthly_amount=100, mercadopago_preapproval_id="PRE123",
+        )
+        with patch("finance.views.mercadopago.cancelar_assinatura", return_value={"status": "cancelled"}):
+            response = pastor_client.post(f"/financeiro/recorrentes/{pledge.pk}/cancelar/")
+        assert response.status_code == 302
+        pledge.refresh_from_db()
+        assert pledge.active is False
+
+
+@pytest.mark.django_db
+class TestRecurringPledgeWebhook:
+    def test_missing_params_is_bad_request(self, client):
+        response = client.post("/financeiro/recorrentes/webhook/mercadopago/")
+        assert response.status_code == 400
+
+    def test_preapproval_status_updates_pledge(self, client, church, person):
+        church.mercadopago_access_token = "fake-token"
+        church.save()
+        pledge = RecurringPledge.objects.create(
+            church=church, person=person, monthly_amount=100, active=False, mercadopago_preapproval_id="PRE123",
+        )
+        with patch("finance.views.mercadopago.consultar_assinatura", return_value={"status": "authorized"}):
+            response = client.post(
+                f"/financeiro/recorrentes/webhook/mercadopago/?type=subscription_preapproval&id=PRE123&church_id={church.pk}"
+            )
+        assert response.status_code == 200
+        pledge.refresh_from_db()
+        assert pledge.active is True
+        assert pledge.mercadopago_status == "authorized"
+
+    def test_authorized_payment_creates_transaction(self, client, church, person):
+        church.mercadopago_access_token = "fake-token"
+        church.save()
+        pledge = RecurringPledge.objects.create(
+            church=church, person=person, monthly_amount=100, active=True, mercadopago_preapproval_id="PRE123",
+        )
+        fake_payment = {"status": "approved", "preapproval_id": "PRE123", "transaction_amount": 100}
+        with patch("finance.views.mercadopago.consultar_pagamento_autorizado", return_value=fake_payment):
+            response = client.post(
+                f"/financeiro/recorrentes/webhook/mercadopago/?type=subscription_authorized_payment&id=PAY1&church_id={church.pk}"
+            )
+        assert response.status_code == 200
+        assert Transaction.objects.filter(
+            person=person, category=Transaction.Category.TITHE, amount=100
+        ).exists()
+
+    def test_unapproved_payment_does_not_create_transaction(self, client, church, person):
+        church.mercadopago_access_token = "fake-token"
+        church.save()
+        RecurringPledge.objects.create(
+            church=church, person=person, monthly_amount=100, mercadopago_preapproval_id="PRE123",
+        )
+        fake_payment = {"status": "pending", "preapproval_id": "PRE123"}
+        with patch("finance.views.mercadopago.consultar_pagamento_autorizado", return_value=fake_payment):
+            response = client.post(
+                f"/financeiro/recorrentes/webhook/mercadopago/?type=subscription_authorized_payment&id=PAY1&church_id={church.pk}"
+            )
+        assert response.status_code == 200
+        assert not Transaction.objects.filter(category=Transaction.Category.TITHE).exists()
+
+
+@pytest.mark.django_db
+class TestAnnualDonationReceipt:
+    def test_aggregates_transactions_for_the_year(self, member_client, member_user, person, church_config):
+        member_user.person = person
+        member_user.save()
+        Transaction.objects.create(
+            church=church_config, type="INCOME", category="TITHE", amount=100, date=date(2026, 1, 10), person=person,
+        )
+        Transaction.objects.create(
+            church=church_config, type="INCOME", category="OFFERING", amount=50, date=date(2026, 6, 5), person=person,
+        )
+        Transaction.objects.create(
+            church=church_config, type="INCOME", category="TITHE", amount=999, date=date(2025, 1, 10), person=person,
+        )
+
+        response = member_client.get("/financeiro/recibo-anual.pdf?ano=2026")
+        assert response.status_code == 200
+        assert response["Content-Type"] == "application/pdf"
+        assert response.content.startswith(b"%PDF-")
+
+    def test_staff_can_download_for_another_person(self, pastor_client, person, church_config):
+        response = pastor_client.get(f"/financeiro/recibo-anual/{person.pk}.pdf")
+        assert response.status_code == 200
+
+    def test_unrelated_member_cannot_download_for_another_person(self, member_client, person, church_config):
+        response = member_client.get(f"/financeiro/recibo-anual/{person.pk}.pdf")
+        assert response.status_code == 404
+
+    def test_anonymous_is_redirected_to_login(self, client):
+        response = client.get("/financeiro/recibo-anual.pdf")
         assert response.status_code == 302
         assert "/accounts/login/" in response.url

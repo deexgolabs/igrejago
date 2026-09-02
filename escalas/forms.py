@@ -1,6 +1,8 @@
+from datetime import date
+
 from django import forms
 
-from escalas.models import Escala, EscalaVoluntario
+from escalas.models import Escala, EscalaVoluntario, IndisponibilidadeVoluntario
 from people.models import Department, Person
 
 DATE_INPUT = forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d")
@@ -36,3 +38,21 @@ class EscalaForm(forms.ModelForm):
 class EscalaVoluntarioResponseForm(forms.Form):
     """Sem campos — os dois botões da tela pública (confirmar/recusar)
     postam direto pra `ConfirmarEscalaView`, um valor `acao` no POST."""
+
+
+class IndisponibilidadeForm(forms.ModelForm):
+    class Meta:
+        model = IndisponibilidadeVoluntario
+        fields = ["date", "motivo"]
+        widgets = {"date": DATE_INPUT}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["date"].input_formats = ["%Y-%m-%d"]
+        self.fields["motivo"].required = False
+
+    def clean_date(self):
+        value = self.cleaned_data["date"]
+        if value < date.today():
+            raise forms.ValidationError("Escolha uma data futura.")
+        return value

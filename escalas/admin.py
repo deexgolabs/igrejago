@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from escalas.models import Escala, EscalaVoluntario
+from escalas.models import Escala, EscalaVoluntario, IndisponibilidadeVoluntario, TrocaEscala
 
 
 class EscalaVoluntarioInline(admin.TabularInline):
@@ -21,4 +21,16 @@ class EscalaAdmin(admin.ModelAdmin):
 @admin.register(EscalaVoluntario)
 class EscalaVoluntarioAdmin(admin.ModelAdmin):
     list_display = ("person", "escala", "status", "confirmed_at")
+    list_filter = ("status",)
+
+
+@admin.register(IndisponibilidadeVoluntario)
+class IndisponibilidadeVoluntarioAdmin(admin.ModelAdmin):
+    list_display = ("person", "date", "motivo")
+    date_hierarchy = "date"
+
+
+@admin.register(TrocaEscala)
+class TrocaEscalaAdmin(admin.ModelAdmin):
+    list_display = ("escala_voluntario", "status", "aceito_por", "created_at")
     list_filter = ("status",)

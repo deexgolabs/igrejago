@@ -2,14 +2,33 @@
 {% block title %}Confirmar escala{% endblock %}
 {% block content %}
 <div class="bg-white border border-slate-200 rounded-xl p-6 text-center">
-    {% if respondido %}
-        {% if voluntario.status == "CONFIRMED" %}
+    {% if voluntario.status == "CONFIRMED" %}
+        {% if respondido %}
         <h1 class="text-lg font-bold text-slate-900 mb-2">Presença confirmada! ✓</h1>
-        <p class="text-sm text-slate-500">Te esperamos em {{ voluntario.escala.date|date:"d/m/Y" }}.</p>
         {% else %}
+        <h1 class="text-lg font-bold text-slate-900 mb-2">Você está confirmado(a)</h1>
+        {% endif %}
+        <p class="text-sm text-slate-500 mb-4">
+            {{ voluntario.escala.department.name }} — {{ voluntario.escala.date|date:"d/m/Y" }}
+            {% if voluntario.escala.time %}às {{ voluntario.escala.time|date:"H:i" }}{% endif %}
+        </p>
+
+        {% if troca_pendente %}
+        <p class="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
+            Você pediu troca dessa escala — aguardando algum colega aceitar.
+        </p>
+        {% else %}
+        <form method="post" action="{% url 'escalas:pedir_troca' voluntario.confirm_token %}"
+              onsubmit="return confirm('Pedir pra outro colega do departamento assumir essa escala?');">
+            {% csrf_token %}
+            <button type="submit" class="text-sm text-slate-500 hover:text-brand-700 underline">
+                Não vou poder ir mais — pedir troca com outro colega
+            </button>
+        </form>
+        {% endif %}
+    {% elif voluntario.status == "DECLINED" %}
         <h1 class="text-lg font-bold text-slate-900 mb-2">Tudo bem, obrigado por avisar</h1>
         <p class="text-sm text-slate-500">Registramos que você não vai poder ir dessa vez.</p>
-        {% endif %}
     {% else %}
         <h1 class="text-lg font-bold text-slate-900 mb-1">Você foi escalado(a)</h1>
         <p class="text-sm text-slate-500 mb-4">

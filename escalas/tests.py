@@ -1,7 +1,7 @@
 import pytest
 from django.core.management import call_command
 
-from escalas.models import Escala, EscalaVoluntario
+from escalas.models import Escala, EscalaVoluntario, IndisponibilidadeVoluntario, TrocaEscala
 from notifications.models import WhatsAppMessage
 from people.models import Department, Person
 
@@ -165,6 +165,34 @@ class TestGerarEscalasMensais:
         call_command("gerar_escalas_mensais", mes=9, ano=2026)
         assert not Escala.objects.exists()
 
+    def test_skips_indisponivel_volunteer_on_that_specific_date(self, church):
+        department = Department.objects.create(church=church, name="Louvor")
+        pessoa1 = Person.objects.create(church=church, full_name="Ana", department=department, phone="62911110000")
+        pessoa2 = Person.objects.create(church=church, full_name="Bruno", department=department, phone="62911110001")
+        # Ana seria a escolhida do dia 06/09 pelo rodízio — avisa que não pode.
+        IndisponibilidadeVoluntario.objects.create(church=church, person=pessoa1, date="2026-09-06")
+
+        call_command("gerar_escalas_mensais", mes=9, ano=2026)
+
+        escala_06 = Escala.objects.get(department=department, date="2026-09-06")
+        assert escala_06.voluntarios.get().person == pessoa2
+        # A indisponibilidade foi só NAQUELE domingo — o rodízio continua
+        # normal dali: 13/09 já seria a vez de Bruno de qualquer jeito
+        # (índice 1), 20/09 volta a ser a vez de Ana (índice 2), agora
+        # disponível de novo.
+        escala_20 = Escala.objects.get(department=department, date="2026-09-20")
+        assert escala_20.voluntarios.get().person == pessoa1
+
+    def test_skips_escala_entirely_when_everyone_is_indisponivel(self, church):
+        department = Department.objects.create(church=church, name="Louvor")
+        pessoa = Person.objects.create(church=church, full_name="Ana", department=department, phone="62911110000")
+        IndisponibilidadeVoluntario.objects.create(church=church, person=pessoa, date="2026-09-06")
+
+        call_command("gerar_escalas_mensais", mes=9, ano=2026)
+
+        assert not Escala.objects.filter(department=department, date="2026-09-06").exists()
+        assert Escala.objects.filter(department=department, date="2026-09-13").exists()
+
     def test_defaults_to_next_month_when_no_args_given(self, church, monkeypatch):
         import datetime as dt
 
@@ -220,3 +248,133 @@ class TestEscalaDepartmentLeaderScopedAccess:
 
     def test_member_cannot_access_escalas(self, member_client):
         assert member_client.get("/escalas/").status_code == 403
+
+
+@pytest.mark.django_db
+class TestMinhaIndisponibilidade:
+    def test_member_creates_indisponibilidade(self, member_client, member_user, person):
+        member_user.person = person
+        member_user.save()
+        response = member_client.post("/escalas/minha-disponibilidade/", {"date": "2099-01-05", "motivo": "Viagem"})
+        assert response.status_code == 302
+        assert IndisponibilidadeVoluntario.objects.filter(person=person, date="2099-01-05").exists()
+
+    def test_past_date_is_rejected(self, member_client, member_user, person):
+        member_user.person = person
+        member_user.save()
+        response = member_client.post("/escalas/minha-disponibilidade/", {"date": "2020-01-05", "motivo": ""})
+        assert response.status_code == 200
+        assert not IndisponibilidadeVoluntario.objects.exists()
+
+    def test_duplicate_date_shows_friendly_error(self, member_client, member_user, person, church):
+        member_user.person = person
+        member_user.save()
+        IndisponibilidadeVoluntario.objects.create(church=church, person=person, date="2099-01-05")
+        response = member_client.post("/escalas/minha-disponibilidade/", {"date": "2099-01-05", "motivo": ""})
+        assert response.status_code == 302
+        assert IndisponibilidadeVoluntario.objects.filter(person=person).count() == 1
+
+    def test_only_sees_own_and_future_entries(self, member_client, member_user, person, church):
+        member_user.person = person
+        member_user.save()
+        IndisponibilidadeVoluntario.objects.create(church=church, person=person, date="2099-01-05")
+        outra_pessoa = Person.objects.create(church=church, full_name="Outra")
+        IndisponibilidadeVoluntario.objects.create(church=church, person=outra_pessoa, date="2099-02-05")
+
+        response = member_client.get("/escalas/minha-disponibilidade/")
+        shown = list(response.context["indisponibilidades"])
+        assert len(shown) == 1
+        assert shown[0].person == person
+
+    def test_can_delete_own_but_not_others(self, member_client, member_user, person, church):
+        member_user.person = person
+        member_user.save()
+        minha = IndisponibilidadeVoluntario.objects.create(church=church, person=person, date="2099-01-05")
+        outra_pessoa = Person.objects.create(church=church, full_name="Outra")
+        de_outro = IndisponibilidadeVoluntario.objects.create(church=church, person=outra_pessoa, date="2099-02-05")
+
+        response = member_client.post(f"/escalas/minha-disponibilidade/{de_outro.pk}/excluir/")
+        assert response.status_code == 404
+
+        response = member_client.post(f"/escalas/minha-disponibilidade/{minha.pk}/excluir/")
+        assert response.status_code == 302
+        assert not IndisponibilidadeVoluntario.objects.filter(pk=minha.pk).exists()
+
+    def test_anonymous_is_redirected_to_login(self, client):
+        response = client.get("/escalas/minha-disponibilidade/")
+        assert response.status_code == 302
+        assert "/accounts/login/" in response.url
+
+
+@pytest.mark.django_db
+class TestTrocaEscala:
+    def _setup_confirmado(self, church):
+        department = Department.objects.create(church=church, name="Louvor")
+        pessoa = Person.objects.create(church=church, full_name="Ana", phone="62911110000", department=department)
+        colega = Person.objects.create(church=church, full_name="Bruno", phone="62911110001", department=department)
+        escala = Escala.objects.create(church=church, department=department, date="2026-09-06")
+        voluntario = EscalaVoluntario.objects.create(
+            church=church, escala=escala, person=pessoa, status=EscalaVoluntario.Status.CONFIRMED,
+        )
+        return voluntario, colega
+
+    def test_confirmed_volunteer_can_request_troca(self, client, church):
+        voluntario, colega = self._setup_confirmado(church)
+
+        response = client.post(f"/escalas/confirmar/{voluntario.confirm_token}/pedir-troca/")
+        assert response.status_code == 302
+        troca = TrocaEscala.objects.get(escala_voluntario=voluntario)
+        assert troca.status == TrocaEscala.Status.PENDING
+        assert WhatsAppMessage.objects.filter(person=colega).exists()
+
+    def test_cannot_request_troca_if_not_confirmed(self, client, church):
+        department = Department.objects.create(church=church, name="Louvor")
+        pessoa = Person.objects.create(church=church, full_name="Ana", department=department)
+        escala = Escala.objects.create(church=church, department=department, date="2026-09-06")
+        voluntario = EscalaVoluntario.objects.create(church=church, escala=escala, person=pessoa)  # PENDING
+
+        response = client.post(f"/escalas/confirmar/{voluntario.confirm_token}/pedir-troca/")
+        assert response.status_code == 302
+        assert not TrocaEscala.objects.exists()
+
+    def test_cannot_request_troca_twice(self, client, church):
+        voluntario, _ = self._setup_confirmado(church)
+        client.post(f"/escalas/confirmar/{voluntario.confirm_token}/pedir-troca/")
+        client.post(f"/escalas/confirmar/{voluntario.confirm_token}/pedir-troca/")
+        assert TrocaEscala.objects.filter(escala_voluntario=voluntario).count() == 1
+
+    def test_colleague_accepts_troca_and_is_reassigned(self, client, church):
+        voluntario, colega = self._setup_confirmado(church)
+        troca = TrocaEscala.objects.create(church=church, escala_voluntario=voluntario)
+
+        response = client.post(f"/escalas/trocar/{troca.token}/", {"person_id": colega.pk})
+        assert response.status_code == 200
+        assert response.context["aceita_agora"] is True
+
+        voluntario.refresh_from_db()
+        assert voluntario.person == colega
+        assert voluntario.status == EscalaVoluntario.Status.PENDING
+        troca.refresh_from_db()
+        assert troca.status == TrocaEscala.Status.ACEITA
+        assert troca.aceito_por == colega
+        assert WhatsAppMessage.objects.filter(person=colega, campaign_label__startswith="Troca de escala").exists()
+
+    def test_second_person_cannot_accept_already_resolved_troca(self, client, church):
+        voluntario, colega = self._setup_confirmado(church)
+        outro = Person.objects.create(church=church, full_name="Carlos", department=voluntario.escala.department)
+        troca = TrocaEscala.objects.create(church=church, escala_voluntario=voluntario)
+
+        client.post(f"/escalas/trocar/{troca.token}/", {"person_id": colega.pk})
+        response = client.post(f"/escalas/trocar/{troca.token}/", {"person_id": outro.pk})
+        assert response.status_code == 200
+        assert response.context["ja_resolvida"] is True
+        voluntario.refresh_from_db()
+        assert voluntario.person == colega  # não mudou de novo
+
+    def test_cannot_accept_with_person_outside_department(self, client, church):
+        voluntario, _ = self._setup_confirmado(church)
+        troca = TrocaEscala.objects.create(church=church, escala_voluntario=voluntario)
+        de_fora = Person.objects.create(church=church, full_name="De Fora")  # sem departamento
+
+        response = client.post(f"/escalas/trocar/{troca.token}/", {"person_id": de_fora.pk})
+        assert response.status_code == 404
