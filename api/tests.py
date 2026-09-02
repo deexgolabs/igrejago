@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from people.models import Person
@@ -65,3 +67,105 @@ class TestApiEndpoints:
         data = response.json()
         assert len(data["results"]) == 1
         assert data["results"][0]["category"] == "TITHE"
+
+
+@pytest.mark.django_db
+class TestApiWritePerson:
+    def test_creates_person(self, client, church):
+        church.api_key = "chave-escrita"
+        church.save()
+
+        response = client.post(
+            "/api/pessoas/",
+            data=json.dumps({"full_name": "Visitante via API", "phone": "62999990000", "role": "VISITOR", "status": "VISITOR"}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION="Bearer chave-escrita",
+        )
+        assert response.status_code == 201
+        person = Person.objects.get()
+        assert person.full_name == "Visitante via API"
+        assert person.church_id == church.pk
+        assert response.json()["id"] == person.pk
+
+    def test_creates_audit_log_entry(self, client, church):
+        from core.models import AuditLog
+
+        church.api_key = "chave-audit"
+        church.save()
+        client.post(
+            "/api/pessoas/",
+            data=json.dumps({"full_name": "Auditada", "role": "VISITOR", "status": "VISITOR"}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION="Bearer chave-audit",
+        )
+        log = AuditLog.objects.get(model_name="Person")
+        assert log.action == "CREATE"
+        assert log.user is None  # API não loga usuário Django, só valida por chave
+
+    def test_invalid_payload_returns_400_with_errors(self, client, church):
+        church.api_key = "chave-invalida"
+        church.save()
+
+        response = client.post(
+            "/api/pessoas/", data=json.dumps({}), content_type="application/json",
+            HTTP_AUTHORIZATION="Bearer chave-invalida",
+        )
+        assert response.status_code == 400
+        assert "full_name" in response.json()["errors"]
+
+    def test_malformed_json_returns_400(self, client, church):
+        church.api_key = "chave-malformada"
+        church.save()
+
+        response = client.post(
+            "/api/pessoas/", data="{not json", content_type="application/json",
+            HTTP_AUTHORIZATION="Bearer chave-malformada",
+        )
+        assert response.status_code == 400
+
+    def test_respects_plan_person_limit(self, client, church):
+        from unittest.mock import patch
+
+        church.api_key = "chave-limite"
+        church.save()
+
+        with patch("api.views.pode_adicionar_pessoa", return_value=False):
+            response = client.post(
+                "/api/pessoas/",
+                data=json.dumps({"full_name": "Além do limite", "role": "VISITOR", "status": "VISITOR"}),
+                content_type="application/json",
+                HTTP_AUTHORIZATION="Bearer chave-limite",
+            )
+        assert response.status_code == 403
+        assert not Person.objects.exists()
+
+    def test_patch_updates_only_sent_fields(self, client, church):
+        church.api_key = "chave-patch"
+        church.save()
+        person = Person.objects.create(church=church, full_name="Original", phone="62911110000")
+
+        response = client.patch(
+            f"/api/pessoas/{person.pk}/", data=json.dumps({"phone": "62922220000"}),
+            content_type="application/json", HTTP_AUTHORIZATION="Bearer chave-patch",
+        )
+        assert response.status_code == 200
+        person.refresh_from_db()
+        assert person.phone == "62922220000"
+        assert person.full_name == "Original"  # não mudou, não foi enviado
+
+    def test_get_detail_returns_person(self, client, church):
+        church.api_key = "chave-detalhe"
+        church.save()
+        person = Person.objects.create(church=church, full_name="Detalhe")
+
+        response = client.get(f"/api/pessoas/{person.pk}/", HTTP_AUTHORIZATION="Bearer chave-detalhe")
+        assert response.status_code == 200
+        assert response.json()["full_name"] == "Detalhe"
+
+    def test_cannot_access_person_from_another_church(self, client, church, outra_church):
+        church.api_key = "chave-isolada"
+        church.save()
+        alheia = Person.objects.create(church=outra_church, full_name="De Outra Igreja")
+
+        response = client.get(f"/api/pessoas/{alheia.pk}/", HTTP_AUTHORIZATION="Bearer chave-isolada")
+        assert response.status_code == 404
