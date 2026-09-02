@@ -28,6 +28,23 @@ class TestEscalaCreate:
         assert mensagem.person == person
         assert mensagem.campaign_label == f"Escala-{escala.pk}"
 
+    def test_enqueued_phone_is_normalized_with_country_code(self, pastor_client, church):
+        """Regressão: `_sync_voluntarios` enfileirava com `pessoa.phone`
+        (cru, ex.: "62982033203") em vez de `pessoa.whatsapp_number`
+        (normalizado, com DDI 55) — a Evolution API rejeita o número sem
+        DDI com 400 Bad Request, e a mensagem nunca saía (achado num
+        relato real de usuário)."""
+        department = Department.objects.create(church=church, name="Louvor")
+        pessoa = Person.objects.create(church=church, full_name="Sem DDI", phone="62982033203")
+
+        pastor_client.post("/escalas/nova/", {
+            "department": department.pk, "date": "2026-09-06", "time": "", "title": "",
+            "voluntarios": [pessoa.pk],
+        })
+
+        mensagem = WhatsAppMessage.objects.get()
+        assert mensagem.phone == "5562982033203"
+
     def test_member_cannot_create_escala(self, member_client):
         response = member_client.get("/escalas/nova/")
         assert response.status_code == 403

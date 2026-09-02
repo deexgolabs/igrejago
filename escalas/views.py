@@ -152,7 +152,7 @@ def _sync_voluntarios(request, escala, pessoas):
             f"Confirma presença? {url}"
         )
         novas_mensagens.append(WhatsAppMessage(
-            church=request.church, person=pessoa, phone=pessoa.phone, message=texto,
+            church=request.church, person=pessoa, phone=pessoa.whatsapp_number, message=texto,
             campaign_label=f"Escala-{escala.pk}",
         ))
 

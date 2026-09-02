@@ -151,7 +151,10 @@ class TestWaitlistPromotion:
         assert registration.on_waitlist is False
 
         from notifications.models import WhatsAppMessage
-        assert WhatsAppMessage.objects.filter(phone="62911112222").exists()
+        # Normalizado com DDI 55 (não o "62911112222" cru digitado na
+        # inscrição) — regressão: sem isso a Evolution API rejeita o
+        # número com 400 Bad Request e a mensagem nunca sai de verdade.
+        assert WhatsAppMessage.objects.filter(phone="5562911112222").exists()
 
     def test_member_cannot_promote(self, member_client, free_event, church):
         registration = Registration.objects.create(church=church, event=free_event, full_name="X", on_waitlist=True)

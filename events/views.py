@@ -22,6 +22,7 @@ from events.forms import EventForm, PublicRegistrationForm
 from events.models import Event, Registration
 from events.pix import build_pix_payload
 from notifications.models import WhatsAppMessage
+from notifications.views import normalize_phone
 
 logger = logging.getLogger(__name__)
 
@@ -301,7 +302,7 @@ class RegistrationPromoteView(IsChurchManagerMixin, View):
                 text = f"Boa notícia! Sua vaga em \"{registration.event.title}\" foi confirmada."
             WhatsAppMessage.objects.create(
                 church=registration.church,
-                person=registration.person, phone=registration.phone, message=text,
+                person=registration.person, phone=normalize_phone(registration.phone), message=text,
                 campaign_label=f"Promoção de lista de espera — {registration.event.title}",
                 created_by=request.user,
             )
