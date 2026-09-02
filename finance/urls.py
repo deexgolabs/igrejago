@@ -2,7 +2,9 @@ from django.urls import path
 
 from finance.views import (
     AnnualDonationReceiptPDFView,
+    BalanceteView,
     BudgetView,
+    DREView,
     DonationConfirmPixView,
     DonationCreateView,
     DonationListView,
@@ -31,6 +33,8 @@ urlpatterns = [
     path("exportar/", TransactionExportView.as_view(), name="export"),
     path("exportar/excel/", TransactionExportExcelView.as_view(), name="export_excel"),
     path("orcamento/", BudgetView.as_view(), name="budget"),
+    path("dre/", DREView.as_view(), name="dre"),
+    path("balancete/", BalanceteView.as_view(), name="balancete"),
     path("novo/", TransactionCreateView.as_view(), name="create"),
     path("<int:pk>/editar/", TransactionUpdateView.as_view(), name="update"),
     path("<int:pk>/excluir/", TransactionDeleteView.as_view(), name="delete"),

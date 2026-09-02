@@ -148,6 +148,103 @@ def generate_annual_donation_receipt_pdf(church_config, person, year):
     return buffer.getvalue()
 
 
+def generate_dre_pdf(church_config, inicio, fim):
+    """DRE (Demonstração de Resultado) do período — agrupa os
+    lançamentos já existentes por `finance.dre.DRE_GROUPS` (Receitas ×
+    Despesas operacionais); resultado = receitas - despesas (superávit
+    se positivo, déficit se negativo). Ver docstring de `finance/dre.py`
+    pro porquê de não ser um plano de contas contábil de verdade."""
+    from finance.dre import dre_breakdown
+
+    breakdown = dre_breakdown(church_config, inicio, fim)
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=2 * cm, bottomMargin=2 * cm)
+    styles = getSampleStyleSheet()
+    story = []
+
+    story.append(Paragraph(church_config.name or "Church CRM", styles["Title"]))
+    story.append(Paragraph(
+        f"DRE — {inicio.strftime('%d/%m/%Y')} a {fim.strftime('%d/%m/%Y')}", styles["Heading2"],
+    ))
+    story.append(Spacer(1, 1 * cm))
+
+    for grupo in breakdown["grupos"]:
+        story.append(Paragraph(grupo["nome"], styles["Heading3"]))
+        rows = [[label, f"R$ {total:.2f}"] for label, total in grupo["categorias"]] or [["—", "R$ 0,00"]]
+        rows.append(["Subtotal", f"R$ {grupo['total']:.2f}"])
+        story.append(_styled_table(rows))
+        story.append(Spacer(1, 0.5 * cm))
+
+    resultado_label = "Resultado do período (superávit)" if breakdown["resultado"] >= 0 else "Resultado do período (déficit)"
+    story.append(_styled_table([
+        ["Total de receitas", f"R$ {breakdown['receitas']:.2f}"],
+        ["Total de despesas", f"R$ {breakdown['despesas']:.2f}"],
+        [resultado_label, f"R$ {breakdown['resultado']:.2f}"],
+    ]))
+    story.append(Spacer(1, 1 * cm))
+    story.append(Paragraph(
+        f"Gerado em {date.today().strftime('%d/%m/%Y')} — agrupamento simplificado sobre as categorias "
+        "de lançamento já existentes, não substitui uma DRE contábil formal.",
+        styles["Normal"],
+    ))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def generate_balancete_pdf(church_config, inicio, fim):
+    """"Balancete" simplificado — saldo acumulado mês a mês (ver
+    `finance.dre.saldo_acumulado` pro porquê de não ser um balanço
+    patrimonial de verdade: o sistema não rastreia conta bancária/
+    ativo/passivo, só entradas e saídas)."""
+    from finance.dre import saldo_acumulado
+
+    dados = saldo_acumulado(church_config, inicio, fim)
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=2 * cm, bottomMargin=2 * cm)
+    styles = getSampleStyleSheet()
+    story = []
+
+    story.append(Paragraph(church_config.name or "Church CRM", styles["Title"]))
+    story.append(Paragraph(
+        f"Saldo acumulado — {inicio.strftime('%d/%m/%Y')} a {fim.strftime('%d/%m/%Y')}", styles["Heading2"],
+    ))
+    story.append(Spacer(1, 0.5 * cm))
+    story.append(Paragraph(f"Saldo de abertura (tudo antes do período): R$ {dados['abertura']:.2f}", styles["Normal"]))
+    story.append(Spacer(1, 0.8 * cm))
+
+    rows = [["Mês", "Entradas", "Saídas", "Saldo do mês", "Saldo acumulado"]]
+    for linha in dados["meses"]:
+        rows.append([
+            linha["mes"].strftime("%m/%Y"), f"R$ {linha['entradas']:.2f}", f"R$ {linha['saidas']:.2f}",
+            f"R$ {linha['saldo_mes']:.2f}", f"R$ {linha['saldo_acumulado']:.2f}",
+        ])
+    table = Table(rows)
+    table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f8fafc")),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.append(table)
+    story.append(Spacer(1, 1 * cm))
+    story.append(Paragraph(f"Saldo final: R$ {dados['saldo_final']:.2f}", styles["Heading3"]))
+    story.append(Spacer(1, 0.6 * cm))
+    story.append(Paragraph(
+        f"Gerado em {date.today().strftime('%d/%m/%Y')} — saldo acumulado de entradas menos saídas, não é "
+        "um balanço patrimonial (ativo/passivo/patrimônio líquido) formal.",
+        styles["Normal"],
+    ))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
 def _styled_table(data):
     table = Table(data, colWidths=[8 * cm, 6 * cm])
     table.setStyle(TableStyle([

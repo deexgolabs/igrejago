@@ -19,14 +19,35 @@ from accounts.mixins import IsChurchManagerMixin
 from core.models import Church
 from core.qr import qr_data_uri
 from core.tenancy import TenantFormMixin
-from core.reports import generate_annual_donation_receipt_pdf, generate_donation_receipt_pdf
+from core.reports import (
+    generate_annual_donation_receipt_pdf,
+    generate_balancete_pdf,
+    generate_donation_receipt_pdf,
+    generate_dre_pdf,
+)
 from events.pix import build_pix_payload
 from finance import mercadopago
+from finance.dre import dre_breakdown, saldo_acumulado
 from finance.forms import DonationAmountForm, RecurringPledgeForm, RecurringPledgeSubscribeForm, TransactionForm
 from finance.models import Budget, Donation, RecurringPledge, Transaction
 from people.models import Person
 
 logger = logging.getLogger(__name__)
+
+
+def _periodo_do_get(request):
+    """`?inicio=&fim=` (AAAA-MM-DD) — sem os dois, cai no mês atual
+    inteiro. Usado por `DREView`/`BalanceteView`."""
+    hoje = date.today()
+    try:
+        inicio = date.fromisoformat(request.GET["inicio"]) if request.GET.get("inicio") else hoje.replace(day=1)
+    except ValueError:
+        inicio = hoje.replace(day=1)
+    try:
+        fim = date.fromisoformat(request.GET["fim"]) if request.GET.get("fim") else hoje
+    except ValueError:
+        fim = hoje
+    return inicio, fim
 
 
 class TransactionListView(IsChurchManagerMixin, ListView):
@@ -653,3 +674,40 @@ class DonationReceiptPDFView(LoginRequiredMixin, View):
         response["Content-Disposition"] = f'attachment; filename="recibo-doacao-{donation.pk}.pdf"'
         response["Cache-Control"] = "private, no-store"
         return response
+
+
+class DREView(IsChurchManagerMixin, View):
+    """DRE do período — tela com o breakdown OU o PDF direto
+    (`?formato=pdf`), mesmo par tela+PDF de sempre nesse app."""
+
+    template_name = "finance/dre.html"
+
+    def get(self, request):
+        inicio, fim = _periodo_do_get(request)
+        if request.GET.get("formato") == "pdf":
+            pdf_bytes = generate_dre_pdf(request.church, inicio, fim)
+            response = HttpResponse(pdf_bytes, content_type="application/pdf")
+            response["Content-Disposition"] = f'attachment; filename="dre-{inicio}-a-{fim}.pdf"'
+            response["Cache-Control"] = "private, no-store"
+            return response
+        breakdown = dre_breakdown(request.church, inicio, fim)
+        return render(request, self.template_name, {"breakdown": breakdown, "inicio": inicio, "fim": fim})
+
+
+class BalanceteView(IsChurchManagerMixin, View):
+    """"Balancete" simplificado (saldo acumulado por mês) — ver
+    docstring de `finance.dre.saldo_acumulado` pro porquê do nome entre
+    aspas (não é um balanço patrimonial contábil de verdade)."""
+
+    template_name = "finance/balancete.html"
+
+    def get(self, request):
+        inicio, fim = _periodo_do_get(request)
+        if request.GET.get("formato") == "pdf":
+            pdf_bytes = generate_balancete_pdf(request.church, inicio, fim)
+            response = HttpResponse(pdf_bytes, content_type="application/pdf")
+            response["Content-Disposition"] = f'attachment; filename="balancete-{inicio}-a-{fim}.pdf"'
+            response["Cache-Control"] = "private, no-store"
+            return response
+        dados = saldo_acumulado(request.church, inicio, fim)
+        return render(request, self.template_name, {"dados": dados, "inicio": inicio, "fim": fim})

@@ -370,3 +370,75 @@ class TestAnnualDonationReceipt:
         response = client.get("/financeiro/recibo-anual.pdf")
         assert response.status_code == 302
         assert "/accounts/login/" in response.url
+
+
+@pytest.mark.django_db
+class TestDRE:
+    def test_groups_income_and_expense_correctly(self, church):
+        from finance.dre import dre_breakdown
+
+        Transaction.objects.create(church=church, type=Transaction.Type.INCOME, category=Transaction.Category.TITHE, amount=100, date=date(2026, 3, 10))
+        Transaction.objects.create(church=church, type=Transaction.Type.INCOME, category=Transaction.Category.OFFERING, amount=50, date=date(2026, 3, 15))
+        Transaction.objects.create(church=church, type=Transaction.Type.EXPENSE, category=Transaction.Category.RENT, amount=80, date=date(2026, 3, 5))
+
+        breakdown = dre_breakdown(church, date(2026, 3, 1), date(2026, 3, 31))
+        assert breakdown["receitas"] == 150
+        assert breakdown["despesas"] == 80
+        assert breakdown["resultado"] == 70
+
+    def test_ignores_transactions_outside_period(self, church):
+        from finance.dre import dre_breakdown
+
+        Transaction.objects.create(church=church, type=Transaction.Type.INCOME, category=Transaction.Category.TITHE, amount=999, date=date(2026, 1, 1))
+        breakdown = dre_breakdown(church, date(2026, 3, 1), date(2026, 3, 31))
+        assert breakdown["receitas"] == 0
+
+    def test_pastor_can_view_dre(self, pastor_client, church):
+        Transaction.objects.create(church=church, type=Transaction.Type.INCOME, category=Transaction.Category.TITHE, amount=100, date=date.today())
+        response = pastor_client.get("/financeiro/dre/")
+        assert response.status_code == 200
+
+    def test_dre_pdf_download(self, pastor_client, church):
+        response = pastor_client.get("/financeiro/dre/?formato=pdf")
+        assert response.status_code == 200
+        assert response["Content-Type"] == "application/pdf"
+        assert response["Cache-Control"] == "private, no-store"
+
+    def test_member_cannot_view_dre(self, member_client):
+        assert member_client.get("/financeiro/dre/").status_code == 403
+
+
+@pytest.mark.django_db
+class TestBalancete:
+    def test_opening_balance_carries_prior_transactions(self, church):
+        from finance.dre import saldo_acumulado
+
+        Transaction.objects.create(church=church, type=Transaction.Type.INCOME, category=Transaction.Category.TITHE, amount=500, date=date(2026, 1, 15))
+        Transaction.objects.create(church=church, type=Transaction.Type.INCOME, category=Transaction.Category.TITHE, amount=100, date=date(2026, 3, 10))
+        Transaction.objects.create(church=church, type=Transaction.Type.EXPENSE, category=Transaction.Category.RENT, amount=40, date=date(2026, 3, 12))
+
+        dados = saldo_acumulado(church, date(2026, 3, 1), date(2026, 3, 31))
+        assert dados["abertura"] == 500
+        assert len(dados["meses"]) == 1
+        assert dados["meses"][0]["saldo_mes"] == 60
+        assert dados["saldo_final"] == 560
+
+    def test_multiple_months_accumulate(self, church):
+        from finance.dre import saldo_acumulado
+
+        Transaction.objects.create(church=church, type=Transaction.Type.INCOME, category=Transaction.Category.TITHE, amount=100, date=date(2026, 1, 5))
+        Transaction.objects.create(church=church, type=Transaction.Type.INCOME, category=Transaction.Category.TITHE, amount=200, date=date(2026, 2, 5))
+
+        dados = saldo_acumulado(church, date(2026, 1, 1), date(2026, 2, 28))
+        assert dados["abertura"] == 0
+        assert len(dados["meses"]) == 2
+        assert dados["meses"][0]["saldo_acumulado"] == 100
+        assert dados["meses"][1]["saldo_acumulado"] == 300
+
+    def test_pastor_can_view_balancete_pdf(self, pastor_client, church):
+        response = pastor_client.get("/financeiro/balancete/?formato=pdf")
+        assert response.status_code == 200
+        assert response["Content-Type"] == "application/pdf"
+
+    def test_member_cannot_view_balancete(self, member_client):
+        assert member_client.get("/financeiro/balancete/").status_code == 403
