@@ -15,5 +15,5 @@ pytest-django>=4.8
 # Produção
 # psycopg2-binary>=2.9   # só necessário se DB_ENGINE=postgresql no .env
 # gunicorn>=22.0
-# sentry-sdk>=2.0        # só necessário se SENTRY_DSN estiver definido no .env
-# pywebpush>=2.0          # só necessário para notificações push (VAPID_* no .env)
+sentry-sdk>=2.0          # ativado — SENTRY_DSN no .env de produção
+pywebpush>=2.0           # ativado — VAPID_* no .env de produção
