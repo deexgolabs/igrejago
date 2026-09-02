@@ -44,6 +44,10 @@ class EscalaVoluntario(TenantModel):
     status = models.CharField("Status", max_length=10, choices=Status.choices, default=Status.PENDING)
     confirm_token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
     confirmed_at = models.DateTimeField("Respondido em", null=True, blank=True)
+    role = models.CharField(
+        "Função nesse culto", max_length=100, blank=True,
+        help_text="Opcional — ex.: Vocal, Baixo, Bateria, Teclado, Recepção.",
+    )
 
     class Meta:
         verbose_name = "Voluntário escalado"
@@ -113,3 +117,70 @@ class TrocaEscala(TenantModel):
 
     def __str__(self):
         return f"Troca — {self.escala_voluntario} ({self.get_status_display()})"
+
+
+class Song(TenantModel):
+    """Uma música do repertório da igreja (não por departamento — é a
+    biblioteca inteira, reaproveitada em qualquer `Escala` via
+    `EscalaSong`). `chord_chart` aceita PDF ou imagem da cifra; `lyrics`
+    é o texto puro (letra+cifra) pra quem prefere ler direto na tela."""
+
+    title = models.CharField("Título", max_length=200)
+    artist = models.CharField("Artista/banda", max_length=150, blank=True)
+    default_key = models.CharField("Tom padrão", max_length=10, blank=True)
+    chord_chart = models.FileField(
+        "Cifra (PDF ou imagem)", upload_to="songs/cifras/%Y/%m/", blank=True, null=True,
+    )
+    lyrics = models.TextField("Letra/cifra em texto", blank=True)
+    tags = models.CharField("Tags", max_length=200, blank=True, help_text="Separadas por vírgula.")
+    created_at = models.DateTimeField("Criada em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Música"
+        verbose_name_plural = "Músicas"
+        ordering = ["title"]
+
+    def __str__(self):
+        return f"{self.title} — {self.artist}" if self.artist else self.title
+
+
+class EscalaSong(TenantModel):
+    """Uma música do repertório escalada pra um culto específico — o tom
+    (`key`) é o escolhido PRA ESSE culto, podendo diferir do
+    `Song.default_key` (a mesma música pode ser tocada em tons
+    diferentes dependendo de quem está cantando)."""
+
+    escala = models.ForeignKey(Escala, on_delete=models.CASCADE, related_name="songs", verbose_name="Escala")
+    song = models.ForeignKey(Song, on_delete=models.CASCADE, related_name="escalas", verbose_name="Música")
+    key = models.CharField("Tom nesse culto", max_length=10, blank=True)
+    order = models.PositiveIntegerField("Ordem", default=0)
+
+    class Meta:
+        verbose_name = "Música escalada"
+        verbose_name_plural = "Músicas escaladas"
+        ordering = ["order", "id"]
+
+    def __str__(self):
+        return f"{self.song.title} — {self.escala}"
+
+
+class ServiceOrderItem(TenantModel):
+    """Um item da ordem do culto (ex.: "Abertura", "Louvor", "Palavra",
+    "Ceia") — genérico o bastante pra qualquer `Escala` estruturada, não
+    só as de louvor."""
+
+    escala = models.ForeignKey(
+        Escala, on_delete=models.CASCADE, related_name="ordem_culto", verbose_name="Escala",
+    )
+    order = models.PositiveIntegerField("Ordem", default=0)
+    title = models.CharField("Item", max_length=150)
+    duration_minutes = models.PositiveIntegerField("Duração (min)", null=True, blank=True)
+    notes = models.CharField("Observações", max_length=255, blank=True)
+
+    class Meta:
+        verbose_name = "Item da ordem do culto"
+        verbose_name_plural = "Itens da ordem do culto"
+        ordering = ["order", "id"]
+
+    def __str__(self):
+        return f"{self.title} — {self.escala}"

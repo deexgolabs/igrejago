@@ -2,7 +2,7 @@ from datetime import date
 
 from django import forms
 
-from escalas.models import Escala, EscalaVoluntario, IndisponibilidadeVoluntario
+from escalas.models import Escala, EscalaSong, IndisponibilidadeVoluntario, ServiceOrderItem, Song
 from people.models import Department, Person
 
 DATE_INPUT = forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d")
@@ -56,3 +56,28 @@ class IndisponibilidadeForm(forms.ModelForm):
         if value < date.today():
             raise forms.ValidationError("Escolha uma data futura.")
         return value
+
+
+class SongForm(forms.ModelForm):
+    class Meta:
+        model = Song
+        fields = ["title", "artist", "default_key", "chord_chart", "lyrics", "tags"]
+        widgets = {"lyrics": forms.Textarea(attrs={"rows": 8})}
+
+
+class EscalaSongForm(forms.ModelForm):
+    class Meta:
+        model = EscalaSong
+        fields = ["song", "key", "order"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # `Song` é `TenantModel` — mesmo motivo de sempre (queryset de
+        # classe seria montado antes do tenant atual existir).
+        self.fields["song"].queryset = Song.objects.all()
+
+
+class ServiceOrderItemForm(forms.ModelForm):
+    class Meta:
+        model = ServiceOrderItem
+        fields = ["title", "order", "duration_minutes", "notes"]

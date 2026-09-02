@@ -1,4 +1,5 @@
 import calendar
+import json
 from datetime import date
 
 from django.contrib import messages
@@ -7,11 +8,20 @@ from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
-from django.views.generic import DeleteView, DetailView, ListView, View
+from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView, View
 
 from accounts.mixins import CanManagePeopleMixin
-from escalas.forms import EscalaForm, IndisponibilidadeForm
-from escalas.models import Escala, EscalaVoluntario, IndisponibilidadeVoluntario, TrocaEscala
+from core.tenancy import TenantFormMixin
+from escalas.forms import EscalaForm, EscalaSongForm, IndisponibilidadeForm, ServiceOrderItemForm, SongForm
+from escalas.models import (
+    Escala,
+    EscalaSong,
+    EscalaVoluntario,
+    IndisponibilidadeVoluntario,
+    ServiceOrderItem,
+    Song,
+    TrocaEscala,
+)
 from notifications.models import WhatsAppMessage
 from people.models import Person
 
@@ -88,7 +98,31 @@ class EscalaDetailView(CanManagePeopleMixin, DetailView):
         for v in voluntarios:
             v.troca_ativa = v.trocas.exclude(status=TrocaEscala.Status.CANCELADA).order_by("-created_at").first()
         context["voluntarios"] = voluntarios
+        context["ordem_culto"] = self.object.ordem_culto.all()
+        context["songs"] = self.object.songs.select_related("song")
+        context["song_form"] = EscalaSongForm()
+        context["order_item_form"] = ServiceOrderItemForm()
         return context
+
+
+def _roles_from_post(request):
+    """`role_<person_id>` — um campo de texto por voluntário marcado na
+    tela (ver escala_form.html), lido aqui em vez de fazer parte do
+    `EscalaForm` porque a lista de campos é dinâmica (um por pessoa)."""
+    roles = {}
+    for key, value in request.POST.items():
+        if key.startswith("role_") and value.strip():
+            try:
+                roles[int(key[len("role_"):])] = value.strip()
+            except ValueError:
+                continue
+    return roles
+
+
+def _roles_json(escala):
+    if not escala or not escala.pk:
+        return "{}"
+    return json.dumps({str(ev.person_id): ev.role for ev in escala.voluntarios.all() if ev.role})
 
 
 class EscalaCreateView(CanManagePeopleMixin, View):
@@ -96,7 +130,7 @@ class EscalaCreateView(CanManagePeopleMixin, View):
 
     def get(self, request):
         form = EscalaForm(user=request.user)
-        return render(request, self.template_name, {"form": form})
+        return render(request, self.template_name, {"form": form, "roles_json": "{}"})
 
     def post(self, request):
         form = EscalaForm(request.POST, user=request.user)
@@ -104,10 +138,10 @@ class EscalaCreateView(CanManagePeopleMixin, View):
             escala = form.save(commit=False)
             escala.church = request.church
             escala.save()
-            _sync_voluntarios(request, escala, form.cleaned_data["voluntarios"])
+            _sync_voluntarios(request, escala, form.cleaned_data["voluntarios"], _roles_from_post(request))
             messages.success(request, "Escala criada.")
             return redirect("escalas:detail", pk=escala.pk)
-        return render(request, self.template_name, {"form": form})
+        return render(request, self.template_name, {"form": form, "roles_json": "{}"})
 
 
 class EscalaUpdateView(CanManagePeopleMixin, View):
@@ -116,17 +150,17 @@ class EscalaUpdateView(CanManagePeopleMixin, View):
     def get(self, request, pk):
         escala = get_object_or_404(_escalas_escopadas(request.user), pk=pk)
         form = EscalaForm(instance=escala, user=request.user)
-        return render(request, self.template_name, {"form": form, "object": escala})
+        return render(request, self.template_name, {"form": form, "object": escala, "roles_json": _roles_json(escala)})
 
     def post(self, request, pk):
         escala = get_object_or_404(_escalas_escopadas(request.user), pk=pk)
         form = EscalaForm(request.POST, instance=escala, user=request.user)
         if form.is_valid():
             escala = form.save()
-            _sync_voluntarios(request, escala, form.cleaned_data["voluntarios"])
+            _sync_voluntarios(request, escala, form.cleaned_data["voluntarios"], _roles_from_post(request))
             messages.success(request, "Escala atualizada.")
             return redirect("escalas:detail", pk=escala.pk)
-        return render(request, self.template_name, {"form": form, "object": escala})
+        return render(request, self.template_name, {"form": form, "object": escala, "roles_json": _roles_json(escala)})
 
 
 class EscalaDeleteView(CanManagePeopleMixin, DeleteView):
@@ -141,19 +175,117 @@ class EscalaDeleteView(CanManagePeopleMixin, DeleteView):
         return reverse("escalas:calendario")
 
 
-def _sync_voluntarios(request, escala, pessoas):
+class SongListView(CanManagePeopleMixin, ListView):
+    model = Song
+    template_name = "escalas/song_list.html"
+    context_object_name = "songs"
+
+
+class SongCreateView(TenantFormMixin, CanManagePeopleMixin, CreateView):
+    model = Song
+    form_class = SongForm
+    template_name = "escalas/song_form.html"
+
+    def form_valid(self, form):
+        messages.success(self.request, "Música adicionada ao repertório.")
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse("escalas:song_list")
+
+
+class SongUpdateView(CanManagePeopleMixin, UpdateView):
+    model = Song
+    form_class = SongForm
+    template_name = "escalas/song_form.html"
+
+    def form_valid(self, form):
+        messages.success(self.request, "Música atualizada.")
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse("escalas:song_list")
+
+
+class SongDeleteView(CanManagePeopleMixin, DeleteView):
+    model = Song
+    template_name = "escalas/song_confirm_delete.html"
+
+    def get_success_url(self):
+        messages.success(self.request, "Música removida do repertório.")
+        return reverse("escalas:song_list")
+
+
+class EscalaSongAddView(CanManagePeopleMixin, View):
+    """Adiciona uma música do repertório ao repertório DESSA escala —
+    sub-CRUD inline em `escala_detail.html`, mesmo espírito de "Links"
+    dentro de `linkbio/manage.html` (sem tela própria)."""
+
+    def post(self, request, pk):
+        escala = get_object_or_404(_escalas_escopadas(request.user), pk=pk)
+        form = EscalaSongForm(request.POST)
+        if form.is_valid():
+            escala_song = form.save(commit=False)
+            escala_song.church = request.church
+            escala_song.escala = escala
+            escala_song.save()
+            messages.success(request, "Música adicionada ao repertório do culto.")
+        else:
+            messages.error(request, "Não deu pra adicionar a música — escolha uma da lista.")
+        return redirect("escalas:detail", pk=escala.pk)
+
+
+class EscalaSongRemoveView(CanManagePeopleMixin, View):
+    def post(self, request, pk, escala_song_pk):
+        escala = get_object_or_404(_escalas_escopadas(request.user), pk=pk)
+        get_object_or_404(EscalaSong, pk=escala_song_pk, escala=escala).delete()
+        messages.success(request, "Música removida do repertório do culto.")
+        return redirect("escalas:detail", pk=escala.pk)
+
+
+class ServiceOrderItemAddView(CanManagePeopleMixin, View):
+    def post(self, request, pk):
+        escala = get_object_or_404(_escalas_escopadas(request.user), pk=pk)
+        form = ServiceOrderItemForm(request.POST)
+        if form.is_valid():
+            item = form.save(commit=False)
+            item.church = request.church
+            item.escala = escala
+            item.save()
+            messages.success(request, "Item adicionado à ordem do culto.")
+        else:
+            messages.error(request, "Não deu pra adicionar o item — confira o título.")
+        return redirect("escalas:detail", pk=escala.pk)
+
+
+class ServiceOrderItemRemoveView(CanManagePeopleMixin, View):
+    def post(self, request, pk, item_pk):
+        escala = get_object_or_404(_escalas_escopadas(request.user), pk=pk)
+        get_object_or_404(ServiceOrderItem, pk=item_pk, escala=escala).delete()
+        messages.success(request, "Item removido da ordem do culto.")
+        return redirect("escalas:detail", pk=escala.pk)
+
+
+def _sync_voluntarios(request, escala, pessoas, roles=None):
     """Cria `EscalaVoluntario` pra quem foi adicionado agora (avisando por
     WhatsApp — nunca chama `enviar_whatsapp()` direto, sempre enfileira,
     mesmo padrão do resto do projeto) e remove quem foi desmarcado. Quem já
-    estava e continua marcado não é tocado (não reenvia aviso à toa)."""
+    estava e continua marcado não é tocado (não reenvia aviso à toa) — só a
+    `role` é atualizada nesse caso, se mudou, sem reenviar WhatsApp."""
+    roles = roles or {}
     existentes = {ev.person_id: ev for ev in escala.voluntarios.all()}
     selecionados_ids = {p.pk for p in pessoas}
 
     novas_mensagens = []
     for pessoa in pessoas:
+        role = roles.get(pessoa.pk, "")
         if pessoa.pk in existentes:
+            ev = existentes[pessoa.pk]
+            if ev.role != role:
+                ev.role = role
+                ev.save(update_fields=["role"])
             continue
-        ev = EscalaVoluntario.objects.create(church=request.church, escala=escala, person=pessoa)
+        ev = EscalaVoluntario.objects.create(church=request.church, escala=escala, person=pessoa, role=role)
         url = request.build_absolute_uri(reverse("escalas:confirmar", args=[ev.confirm_token]))
         horario = f" às {escala.time.strftime('%H:%M')}" if escala.time else ""
         texto = (
@@ -199,7 +331,15 @@ class ConfirmarEscalaView(View):
     @staticmethod
     def _context(voluntario, respondido=False):
         troca_pendente = voluntario.trocas.filter(status=TrocaEscala.Status.PENDING).exists()
-        return {"voluntario": voluntario, "respondido": respondido, "troca_pendente": troca_pendente}
+        return {
+            "voluntario": voluntario,
+            "respondido": respondido,
+            "troca_pendente": troca_pendente,
+            # Ordem do culto + repertório (com link da cifra) — o músico
+            # já sai daqui sabendo o que vai tocar, sem precisar logar.
+            "ordem_culto": voluntario.escala.ordem_culto.all(),
+            "songs": voluntario.escala.songs.select_related("song"),
+        }
 
 
 class PedirTrocaView(View):

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Repertório{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-slate-900">Repertório de músicas</h1>
+    <a href="{% url 'escalas:song_create' %}" class="text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg px-3 py-2">+ Nova música</a>
+</div>
+<p class="text-sm text-slate-500 mb-4">
+    Biblioteca da igreja inteira — cada culto escolhe quais dessas músicas entram no repertório e em qual tom
+    (na tela de detalhe da escala).
+</p>
+
+<div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr>
+                <th class="text-left px-4 py-3">Título</th>
+                <th class="text-left px-4 py-3">Artista</th>
+                <th class="text-left px-4 py-3">Tom padrão</th>
+                <th class="text-left px-4 py-3">Cifra</th>
+                <th class="text-right px-4 py-3">Ações</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+            {% for song in songs %}
+            <tr class="hover:bg-slate-50">
+                <td class="px-4 py-3 font-medium text-slate-800">{{ song.title }}</td>
+                <td class="px-4 py-3 text-slate-600">{{ song.artist|default:"—" }}</td>
+                <td class="px-4 py-3 text-slate-600">{{ song.default_key|default:"—" }}</td>
+                <td class="px-4 py-3">
+                    {% if song.chord_chart %}
+                    <a href="{{ song.chord_chart.url }}" target="_blank" class="text-brand-700 hover:underline">Ver cifra</a>
+                    {% else %}—{% endif %}
+                </td>
+                <td class="px-4 py-3 text-right space-x-2">
+                    <a href="{% url 'escalas:song_update' song.pk %}" class="text-slate-500 hover:text-brand-700">Editar</a>
+                    <a href="{% url 'escalas:song_delete' song.pk %}" class="text-slate-500 hover:text-red-600">Excluir</a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">Nenhuma música cadastrada ainda.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

@@ -12,15 +12,16 @@
     </div>
 </div>
 
-<div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+<div class="bg-white border border-slate-200 rounded-xl overflow-x-auto mb-6">
     <table class="w-full text-sm">
         <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
-            <tr><th class="text-left px-4 py-3">Voluntário</th><th class="text-left px-4 py-3">Status</th><th class="text-left px-4 py-3">Troca</th></tr>
+            <tr><th class="text-left px-4 py-3">Voluntário</th><th class="text-left px-4 py-3">Função</th><th class="text-left px-4 py-3">Status</th><th class="text-left px-4 py-3">Troca</th></tr>
         </thead>
         <tbody class="divide-y divide-slate-100">
             {% for v in voluntarios %}
             <tr class="hover:bg-slate-50">
                 <td class="px-4 py-3 font-medium text-slate-800">{{ v.person.full_name }}</td>
+                <td class="px-4 py-3 text-slate-600">{{ v.role|default:"—" }}</td>
                 <td class="px-4 py-3">
                     {% if v.status == "CONFIRMED" %}
                     <span class="text-xs font-medium px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">Confirmado</span>
@@ -39,9 +40,84 @@
                 </td>
             </tr>
             {% empty %}
-            <tr><td colspan="3" class="px-4 py-8 text-center text-slate-400">Nenhum voluntário escalado ainda.</td></tr>
+            <tr><td colspan="4" class="px-4 py-8 text-center text-slate-400">Nenhum voluntário escalado ainda.</td></tr>
             {% endfor %}
         </tbody>
     </table>
 </div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div class="bg-white border border-slate-200 rounded-xl p-6">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">Ordem do culto</h2>
+        <div class="space-y-2 mb-4">
+            {% for item in ordem_culto %}
+            <div class="flex items-center justify-between border border-slate-100 rounded-lg px-3 py-2 text-sm">
+                <div>
+                    <p class="font-medium text-slate-800">{{ item.title }}</p>
+                    {% if item.duration_minutes or item.notes %}
+                    <p class="text-xs text-slate-400">{% if item.duration_minutes %}{{ item.duration_minutes }} min{% endif %}{% if item.notes %} · {{ item.notes }}{% endif %}</p>
+                    {% endif %}
+                </div>
+                <form method="post" action="{% url 'escalas:order_item_remove' escala.pk item.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" class="text-slate-500 hover:text-red-600 text-xs">Remover</button>
+                </form>
+            </div>
+            {% empty %}
+            <p class="text-sm text-slate-400">Nenhum item ainda.</p>
+            {% endfor %}
+        </div>
+        <form method="post" action="{% url 'escalas:order_item_add' escala.pk %}" class="form-padrao flex flex-wrap gap-2 items-end">
+            {% csrf_token %}
+            {% for field in order_item_form %}
+            <p class="flex-1 min-w-[100px]">
+                <label class="block text-xs font-semibold text-slate-500 mb-1">{{ field.label }}</label>
+                {{ field }}
+            </p>
+            {% endfor %}
+            <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm rounded-lg px-3 py-2">+ Adicionar</button>
+        </form>
+    </div>
+
+    <div class="bg-white border border-slate-200 rounded-xl p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-sm font-semibold text-slate-700">Repertório</h2>
+            <a href="{% url 'escalas:song_list' %}" class="text-xs text-slate-500 hover:text-brand-700">gerenciar biblioteca</a>
+        </div>
+        <div class="space-y-2 mb-4">
+            {% for es in songs %}
+            <div class="flex items-center justify-between border border-slate-100 rounded-lg px-3 py-2 text-sm">
+                <div>
+                    <p class="font-medium text-slate-800">{{ es.song.title }}{% if es.key %} <span class="text-slate-400 font-normal">({{ es.key }})</span>{% endif %}</p>
+                    {% if es.song.chord_chart %}
+                    <a href="{{ es.song.chord_chart.url }}" target="_blank" class="text-xs text-brand-700 hover:underline">Ver cifra</a>
+                    {% endif %}
+                </div>
+                <form method="post" action="{% url 'escalas:song_remove' escala.pk es.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" class="text-slate-500 hover:text-red-600 text-xs">Remover</button>
+                </form>
+            </div>
+            {% empty %}
+            <p class="text-sm text-slate-400">Nenhuma música no repertório ainda.</p>
+            {% endfor %}
+        </div>
+        <form method="post" action="{% url 'escalas:song_add' escala.pk %}" class="form-padrao flex flex-wrap gap-2 items-end">
+            {% csrf_token %}
+            {% for field in song_form %}
+            <p class="flex-1 min-w-[100px]">
+                <label class="block text-xs font-semibold text-slate-500 mb-1">{{ field.label }}</label>
+                {{ field }}
+            </p>
+            {% endfor %}
+            <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm rounded-lg px-3 py-2">+ Adicionar</button>
+        </form>
+    </div>
+</div>
+
+<style>
+.form-padrao input[type="text"], .form-padrao input[type="number"], .form-padrao select {
+    border: 1px solid #d1d5db; border-radius: 0.5rem; padding: 0.4rem 0.65rem; font-size: 0.875rem; width: 100%;
+}
+</style>
 {% endblock %}

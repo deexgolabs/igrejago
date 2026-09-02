@@ -6,12 +6,29 @@
 <form method="post" class="form-padrao bg-white border border-slate-200 rounded-xl p-6 max-w-lg space-y-3">
     {% csrf_token %}
     {% for field in form %}
+    {% if field.name == "voluntarios" %}
+    <p>
+        <label class="block text-xs font-semibold text-slate-500 mb-1">{{ field.label }}</label>
+        <ul id="voluntarios-list">
+            {% for choice in field %}
+            <li class="flex items-center gap-2">
+                {{ choice.tag }}
+                <span class="flex-1">{{ choice.choice_label }}</span>
+                <input type="text" name="role_{{ choice.data.value }}" data-person-id="{{ choice.data.value }}"
+                       placeholder="Função (opcional)" class="text-xs border border-slate-300 rounded px-2 py-1 w-36">
+            </li>
+            {% endfor %}
+        </ul>
+        <span class="text-xs text-slate-400">A função (ex.: Vocal, Bateria) é opcional — some no repertório do culto.</span>
+    </p>
+    {% else %}
     <p>
         <label class="block text-xs font-semibold text-slate-500 mb-1">{{ field.label }}</label>
         {{ field }}
         {% if field.help_text %}<span class="text-xs text-slate-400">{{ field.help_text }}</span>{% endif %}
         {% if field.errors %}<p class="text-xs text-red-600 mt-1">{{ field.errors|striptags }}</p>{% endif %}
     </p>
+    {% endif %}
     {% endfor %}
     <div class="flex gap-2 pt-2">
         <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm rounded-lg px-4 py-2">Salvar</button>
@@ -23,7 +40,19 @@
 .form-padrao input[type="text"], .form-padrao input[type="date"], .form-padrao input[type="time"], .form-padrao select {
     width: 100%; border: 1px solid #d1d5db; border-radius: 0.5rem; padding: 0.4rem 0.65rem; font-size: 0.875rem;
 }
-.form-padrao ul { list-style: none; padding: 0; max-height: 220px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 0.5rem; padding: 0.5rem; }
+.form-padrao ul { list-style: none; padding: 0; max-height: 260px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 0.5rem; padding: 0.5rem; }
 .form-padrao ul li label { display: flex; align-items: center; gap: 0.4rem; font-weight: 400; color: #334155; font-size: 0.85rem; padding: 0.15rem 0; }
+.form-padrao ul#voluntarios-list li input[type="text"] { width: 9rem; }
 </style>
+<script>
+    // Pré-preenche a "função" de cada voluntário já escalado (não dá pra
+    // fazer isso só com Django template — a chave do dict é dinâmica).
+    (function () {
+        var roles = {{ roles_json|safe }};
+        document.querySelectorAll('#voluntarios-list input[data-person-id]').forEach(function (input) {
+            var role = roles[input.dataset.personId];
+            if (role) input.value = role;
+        });
+    })();
+</script>
 {% endblock %}

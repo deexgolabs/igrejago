@@ -42,4 +42,28 @@
         </form>
     {% endif %}
 </div>
+
+{% if ordem_culto or songs %}
+<div class="bg-white border border-slate-200 rounded-xl p-6 mt-4 text-left">
+    {% if ordem_culto %}
+    <h2 class="text-sm font-semibold text-slate-700 mb-2">Ordem do culto</h2>
+    <ol class="text-sm text-slate-600 list-decimal list-inside mb-4 space-y-1">
+        {% for item in ordem_culto %}
+        <li>{{ item.title }}{% if item.duration_minutes %} ({{ item.duration_minutes }} min){% endif %}</li>
+        {% endfor %}
+    </ol>
+    {% endif %}
+    {% if songs %}
+    <h2 class="text-sm font-semibold text-slate-700 mb-2">Repertório</h2>
+    <ul class="text-sm text-slate-600 space-y-1">
+        {% for es in songs %}
+        <li>
+            {{ es.song.title }}{% if es.key %} ({{ es.key }}){% endif %}
+            {% if es.song.chord_chart %}— <a href="{{ es.song.chord_chart.url }}" target="_blank" class="text-brand-700 hover:underline">cifra</a>{% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+</div>
+{% endif %}
 {% endblock %}

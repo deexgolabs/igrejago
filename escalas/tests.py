@@ -1,7 +1,7 @@
 import pytest
 from django.core.management import call_command
 
-from escalas.models import Escala, EscalaVoluntario, IndisponibilidadeVoluntario, TrocaEscala
+from escalas.models import Escala, EscalaSong, EscalaVoluntario, IndisponibilidadeVoluntario, ServiceOrderItem, Song, TrocaEscala
 from notifications.models import WhatsAppMessage
 from people.models import Department, Person
 
@@ -378,3 +378,86 @@ class TestTrocaEscala:
 
         response = client.post(f"/escalas/trocar/{troca.token}/", {"person_id": de_fora.pk})
         assert response.status_code == 404
+
+
+@pytest.mark.django_db
+class TestPlanejamentoDeCulto:
+    def test_create_escala_with_role_per_volunteer(self, pastor_client, person, church):
+        department = Department.objects.create(church=church, name="Louvor")
+        response = pastor_client.post("/escalas/nova/", {
+            "department": department.pk, "date": "2026-09-06", "time": "19:00", "title": "",
+            "voluntarios": [person.pk], f"role_{person.pk}": "Vocal",
+        })
+        assert response.status_code == 302
+        voluntario = EscalaVoluntario.objects.get()
+        assert voluntario.role == "Vocal"
+
+    def test_update_changes_role_without_resending_whatsapp(self, pastor_client, person, church):
+        department = Department.objects.create(church=church, name="Louvor")
+        escala = Escala.objects.create(church=church, department=department, date="2026-09-06")
+        EscalaVoluntario.objects.create(church=church, escala=escala, person=person, role="Vocal")
+
+        pastor_client.post(f"/escalas/{escala.pk}/editar/", {
+            "department": department.pk, "date": "2026-09-06", "time": "", "title": "",
+            "voluntarios": [person.pk], f"role_{person.pk}": "Bateria",
+        })
+        voluntario = escala.voluntarios.get()
+        assert voluntario.role == "Bateria"
+        assert WhatsAppMessage.objects.count() == 0
+
+    def test_pastor_can_manage_song_library(self, pastor_client, church):
+        response = pastor_client.post("/escalas/musicas/nova/", {
+            "title": "Grande é o Senhor", "artist": "Diante do Trono", "default_key": "G",
+            "lyrics": "",
+        })
+        assert response.status_code == 302
+        song = Song.objects.get()
+        assert song.title == "Grande é o Senhor"
+
+    def test_member_cannot_manage_song_library(self, member_client):
+        assert member_client.get("/escalas/musicas/").status_code == 403
+
+    def test_add_and_remove_song_from_escala(self, pastor_client, church):
+        department = Department.objects.create(church=church, name="Louvor")
+        escala = Escala.objects.create(church=church, department=department, date="2026-09-06")
+        song = Song.objects.create(church=church, title="Reckless Love")
+
+        response = pastor_client.post(f"/escalas/{escala.pk}/repertorio/adicionar/", {
+            "song": song.pk, "key": "D", "order": "1",
+        })
+        assert response.status_code == 302
+        escala_song = EscalaSong.objects.get()
+        assert escala_song.song == song
+        assert escala_song.key == "D"
+
+        response = pastor_client.post(f"/escalas/{escala.pk}/repertorio/{escala_song.pk}/remover/")
+        assert response.status_code == 302
+        assert not EscalaSong.objects.exists()
+
+    def test_add_and_remove_service_order_item(self, pastor_client, church):
+        department = Department.objects.create(church=church, name="Louvor")
+        escala = Escala.objects.create(church=church, department=department, date="2026-09-06")
+
+        response = pastor_client.post(f"/escalas/{escala.pk}/ordem-culto/adicionar/", {
+            "title": "Abertura", "order": "1", "duration_minutes": "10", "notes": "",
+        })
+        assert response.status_code == 302
+        item = ServiceOrderItem.objects.get()
+        assert item.title == "Abertura"
+
+        response = pastor_client.post(f"/escalas/{escala.pk}/ordem-culto/{item.pk}/remover/")
+        assert response.status_code == 302
+        assert not ServiceOrderItem.objects.exists()
+
+    def test_public_confirm_page_shows_setlist_and_order(self, client, person, church):
+        department = Department.objects.create(church=church, name="Louvor")
+        escala = Escala.objects.create(church=church, department=department, date="2026-09-06")
+        voluntario = EscalaVoluntario.objects.create(church=church, escala=escala, person=person)
+        song = Song.objects.create(church=church, title="Reckless Love")
+        EscalaSong.objects.create(church=church, escala=escala, song=song, key="D")
+        ServiceOrderItem.objects.create(church=church, escala=escala, title="Abertura")
+
+        response = client.get(f"/escalas/confirmar/{voluntario.confirm_token}/")
+        assert response.status_code == 200
+        assert b"Reckless Love" in response.content
+        assert b"Abertura" in response.content
