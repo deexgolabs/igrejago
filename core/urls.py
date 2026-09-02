@@ -13,6 +13,7 @@ from core.views import (
     DataDeletionRequestListView,
     DataDeletionRequestProcessView,
     GeneralReportPDFView,
+    GestaoChurchDeleteView,
     GestaoChurchDetailView,
     GestaoChurchListView,
     GestaoCommandRunView,
@@ -59,6 +60,7 @@ urlpatterns = [
     path("gestao/", GestaoDashboardView.as_view(), name="gestao_dashboard"),
     path("gestao/igrejas/", GestaoChurchListView.as_view(), name="gestao_church_list"),
     path("gestao/igrejas/<int:pk>/", GestaoChurchDetailView.as_view(), name="gestao_church_detail"),
+    path("gestao/igrejas/<int:pk>/excluir/", GestaoChurchDeleteView.as_view(), name="gestao_church_delete"),
     path("gestao/comandos/", GestaoCommandsView.as_view(), name="gestao_commands"),
     path(
         "gestao/comandos/<str:command_name>/executar/",

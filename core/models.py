@@ -230,6 +230,17 @@ class Church(models.Model):
             slug = f"{base}-{sufixo}"
         return slug
 
+    def delete(self, *args, **kwargs):
+        # Sem `suppress_audit_log()`, o `post_delete` de cada model
+        # auditado (Person, Cell, Event...) cria um `AuditLog` NOVO desta
+        # igreja enquanto o Django cascade-apaga tudo — sobra apontando
+        # pra uma igreja que não existe mais e o DELETE final quebra com
+        # `FOREIGN KEY constraint failed` (ver core/signals.py).
+        from core.signals import suppress_audit_log
+
+        with suppress_audit_log():
+            return super().delete(*args, **kwargs)
+
     @property
     def esta_bloqueada(self):
         return self.status == self.Status.SUSPENDED

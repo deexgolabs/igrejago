@@ -754,6 +754,35 @@ class GestaoChurchDetailView(IsPlatformOwnerMixin, View):
         return render(request, self.template_name, self._context(request, church, form))
 
 
+class GestaoChurchDeleteView(IsPlatformOwnerMixin, View):
+    """Exclusão definitiva de uma igreja — caso de suporte pra cadastro
+    abandonado/de teste (ex.: igreja que nunca confirmou o e-mail porque
+    a caixa de entrada estava cheia, e por isso nunca fica ativa nem some
+    sozinha). Exige digitar o slug da igreja pra confirmar (ação
+    irreversível: apaga TODOS os dados — pessoas, eventos, financeiro,
+    mensagens etc. — em cascata, ver `Church.delete()`)."""
+
+    template_name = "core/gestao/church_confirm_delete.html"
+
+    def get(self, request, pk):
+        church = get_object_or_404(Church, pk=pk)
+        return render(request, self.template_name, {
+            "church": church,
+            "total_pessoas": Person.objects.filter(church=church).count(),
+            "total_usuarios": church.users.count(),
+        })
+
+    def post(self, request, pk):
+        church = get_object_or_404(Church, pk=pk)
+        if request.POST.get("confirmacao", "").strip() != church.slug:
+            messages.error(request, "Slug digitado não confere — igreja NÃO foi excluída.")
+            return redirect("core:gestao_church_delete", pk=church.pk)
+        nome = church.name
+        church.delete()
+        messages.success(request, f'Igreja "{nome}" excluída definitivamente.')
+        return redirect("core:gestao_church_list")
+
+
 class GestaoCommandsView(IsPlatformOwnerMixin, TemplateView):
     """Lista os comandos de manutenção pra rodar manualmente — o
     PythonAnywhere free tier não tem *scheduled tasks*, então isso

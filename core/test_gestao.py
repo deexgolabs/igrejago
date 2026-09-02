@@ -164,3 +164,42 @@ class TestGestaoCommands:
         assert response.status_code == 302
         page = platform_owner_client.get("/gestao/comandos/")
         assert page.context["last_run"]["ok"] is True
+
+
+@pytest.mark.django_db
+class TestGestaoChurchDelete:
+    def test_pastor_cannot_access(self, pastor_client, church):
+        assert pastor_client.get(f"/gestao/igrejas/{church.pk}/excluir/").status_code == 403
+
+    def test_wrong_slug_does_not_delete(self, platform_owner_client, church):
+        response = platform_owner_client.post(f"/gestao/igrejas/{church.pk}/excluir/", {"confirmacao": "slug-errado"})
+        assert response.status_code == 302
+        assert Church.objects.filter(pk=church.pk).exists()
+
+    def test_correct_slug_deletes_the_church(self, platform_owner_client, church):
+        response = platform_owner_client.post(f"/gestao/igrejas/{church.pk}/excluir/", {"confirmacao": church.slug})
+        assert response.status_code == 302
+        assert response.url == "/gestao/igrejas/"
+        assert not Church.objects.filter(pk=church.pk).exists()
+
+    def test_deleting_a_church_with_full_data_does_not_raise(self, platform_owner_client, church, person):
+        """Regressão: excluir uma igreja com dados cascade-apagava Person/
+        Cell/Checkin/etc., e o `post_delete` de auditoria (core/signals.py)
+        criava um `AuditLog` NOVO dessa igreja no meio do processo — sobrava
+        uma linha órfã e o DELETE final do Church quebrava com
+        `FOREIGN KEY constraint failed`. Ver `Church.delete()` +
+        `core.signals.suppress_audit_log()`."""
+        from checkin.models import Checkin, SalaInfantil
+        from escalas.models import Escala, EscalaVoluntario
+        from people.models import Department
+
+        dept = Department.objects.create(church=church, name="Louvor")
+        dependente = Person.objects.create(church=church, full_name="Dependente", guardian=person)
+        sala = SalaInfantil.objects.create(church=church, name="Kids")
+        Checkin.objects.create(church=church, child=dependente, child_name="Dependente", sala=sala, guardian_name="Responsável")
+        escala = Escala.objects.create(church=church, department=dept, date="2026-09-06")
+        EscalaVoluntario.objects.create(church=church, escala=escala, person=person)
+
+        response = platform_owner_client.post(f"/gestao/igrejas/{church.pk}/excluir/", {"confirmacao": church.slug})
+        assert response.status_code == 302
+        assert not Church.objects.filter(pk=church.pk).exists()
