@@ -4,6 +4,43 @@ from django.db import models
 from core.tenancy import TenantModel
 
 
+class ContaContabil(TenantModel):
+    """Plano de contas configurável pela PRÓPRIA igreja — camada
+    ADICIONAL sobre `Transaction.category` (o enum fixo de 11 valores
+    continua exatamente como sempre foi, sem migração de dado). Pra
+    igreja com contador exigente, que precisa de uma árvore de contas
+    no formato que o contador reconhece; pra quem não precisa disso, o
+    campo em `Transaction` fica em branco e o DRE simples por categoria
+    (`finance/dre.py`) continua sendo o padrão."""
+
+    class Tipo(models.TextChoices):
+        RECEITA = "RECEITA", "Receita"
+        DESPESA = "DESPESA", "Despesa"
+        ATIVO = "ATIVO", "Ativo"
+        PASSIVO = "PASSIVO", "Passivo"
+        PATRIMONIO_LIQUIDO = "PATRIMONIO_LIQUIDO", "Patrimônio líquido"
+
+    code = models.CharField(
+        "Código", max_length=20,
+        help_text="Livre — numere do jeito que seu contador pedir (ex.: 3.1.01).",
+    )
+    name = models.CharField("Nome da conta", max_length=150)
+    tipo = models.CharField("Tipo", max_length=20, choices=Tipo.choices)
+    parent = models.ForeignKey(
+        "self", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="children", verbose_name="Conta superior",
+    )
+    is_active = models.BooleanField("Ativa", default=True)
+
+    class Meta:
+        verbose_name = "Conta contábil"
+        verbose_name_plural = "Plano de contas"
+        ordering = ["code"]
+
+    def __str__(self):
+        return f"{self.code} — {self.name}"
+
+
 class Transaction(TenantModel):
     """Um lançamento financeiro — entrada (dízimo/oferta/doação) ou saída
     (despesa). "Financeiro Simples" por design: um único model de lançamento,
@@ -49,6 +86,11 @@ class Transaction(TenantModel):
     )
     payment_method = models.CharField(
         "Forma de pagamento", max_length=10, choices=PaymentMethod.choices, blank=True
+    )
+    conta_contabil = models.ForeignKey(
+        ContaContabil, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="transactions", verbose_name="Conta contábil",
+        help_text="Opcional — só pra quem já montou um plano de contas (Financeiro → Plano de contas).",
     )
 
     created_by = models.ForeignKey(

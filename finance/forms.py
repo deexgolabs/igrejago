@@ -2,7 +2,7 @@ from datetime import date
 
 from django import forms
 
-from finance.models import RecurringPledge, Transaction
+from finance.models import ContaContabil, RecurringPledge, Transaction
 from people.models import Person
 
 DATE_INPUT = forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d")
@@ -11,7 +11,7 @@ DATE_INPUT = forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d")
 class TransactionForm(forms.ModelForm):
     class Meta:
         model = Transaction
-        fields = ["type", "category", "amount", "date", "description", "person", "payment_method"]
+        fields = ["type", "category", "amount", "date", "description", "person", "payment_method", "conta_contabil"]
         widgets = {"date": DATE_INPUT, "description": forms.TextInput()}
 
     def __init__(self, *args, **kwargs):
@@ -19,11 +19,27 @@ class TransactionForm(forms.ModelForm):
         self.fields["date"].input_formats = ["%Y-%m-%d"]
         if not self.instance.pk:
             self.fields["date"].initial = date.today()
-        # `Person` é `TenantModel` — mesmo motivo do `PersonForm`
-        # (`people/forms.py`): refaz o queryset aqui pra não vazar pessoas
-        # de outras igrejas (fixado na classe do form, sem igreja nenhuma
-        # no thread-local ainda).
+        # `Person`/`ContaContabil` são `TenantModel` — mesmo motivo do
+        # `PersonForm` (`people/forms.py`): refaz o queryset aqui pra não
+        # vazar registro de outras igrejas (fixado na classe do form, sem
+        # igreja nenhuma no thread-local ainda).
         self.fields["person"].queryset = Person.objects.all()
+        self.fields["conta_contabil"].queryset = ContaContabil.objects.filter(is_active=True)
+        self.fields["conta_contabil"].required = False
+
+
+class ContaContabilForm(forms.ModelForm):
+    class Meta:
+        model = ContaContabil
+        fields = ["code", "name", "tipo", "parent", "is_active"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        parent_qs = ContaContabil.objects.all()
+        if self.instance.pk:
+            parent_qs = parent_qs.exclude(pk=self.instance.pk)
+        self.fields["parent"].queryset = parent_qs
+        self.fields["parent"].required = False
 
 
 class RecurringPledgeForm(forms.ModelForm):

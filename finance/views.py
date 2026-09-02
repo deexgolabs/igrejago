@@ -23,13 +23,20 @@ from core.reports import (
     generate_annual_donation_receipt_pdf,
     generate_balancete_pdf,
     generate_donation_receipt_pdf,
+    generate_dre_contabil_pdf,
     generate_dre_pdf,
 )
 from events.pix import build_pix_payload
 from finance import mercadopago
-from finance.dre import dre_breakdown, saldo_acumulado
-from finance.forms import DonationAmountForm, RecurringPledgeForm, RecurringPledgeSubscribeForm, TransactionForm
-from finance.models import Budget, Donation, RecurringPledge, Transaction
+from finance.dre import dre_breakdown, dre_por_conta_contabil, saldo_acumulado
+from finance.forms import (
+    ContaContabilForm,
+    DonationAmountForm,
+    RecurringPledgeForm,
+    RecurringPledgeSubscribeForm,
+    TransactionForm,
+)
+from finance.models import Budget, ContaContabil, Donation, RecurringPledge, Transaction
 from people.models import Person
 
 DONATION_CATEGORIES = (Transaction.Category.TITHE, Transaction.Category.OFFERING, Transaction.Category.DONATION)
@@ -736,3 +743,88 @@ class BalanceteView(IsChurchManagerMixin, View):
             return response
         dados = saldo_acumulado(request.church, inicio, fim)
         return render(request, self.template_name, {"dados": dados, "inicio": inicio, "fim": fim})
+
+
+class ContaContabilListView(IsChurchManagerMixin, ListView):
+    model = ContaContabil
+    template_name = "finance/conta_contabil_list.html"
+    context_object_name = "contas"
+
+
+class ContaContabilCreateView(TenantFormMixin, IsChurchManagerMixin, CreateView):
+    model = ContaContabil
+    form_class = ContaContabilForm
+    template_name = "finance/conta_contabil_form.html"
+    success_url = reverse_lazy("finance:conta_contabil_list")
+
+    def form_valid(self, form):
+        messages.success(self.request, "Conta cadastrada.")
+        return super().form_valid(form)
+
+
+class ContaContabilUpdateView(IsChurchManagerMixin, UpdateView):
+    model = ContaContabil
+    form_class = ContaContabilForm
+    template_name = "finance/conta_contabil_form.html"
+    success_url = reverse_lazy("finance:conta_contabil_list")
+
+    def form_valid(self, form):
+        messages.success(self.request, "Conta atualizada.")
+        return super().form_valid(form)
+
+
+class ContaContabilDeleteView(IsChurchManagerMixin, DeleteView):
+    model = ContaContabil
+    template_name = "finance/conta_contabil_confirm_delete.html"
+    success_url = reverse_lazy("finance:conta_contabil_list")
+
+    def form_valid(self, form):
+        messages.success(self.request, "Conta removida.")
+        return super().form_valid(form)
+
+
+class DREContabilView(IsChurchManagerMixin, View):
+    """DRE agrupado pelo plano de contas configurável — mesmo par
+    tela+PDF de `DREView`, só trocando o agrupamento."""
+
+    template_name = "finance/dre_contabil.html"
+
+    def get(self, request):
+        inicio, fim = _periodo_do_get(request)
+        if request.GET.get("formato") == "pdf":
+            pdf_bytes = generate_dre_contabil_pdf(request.church, inicio, fim)
+            response = HttpResponse(pdf_bytes, content_type="application/pdf")
+            response["Content-Disposition"] = f'attachment; filename="dre-contabil-{inicio}-a-{fim}.pdf"'
+            response["Cache-Control"] = "private, no-store"
+            return response
+        breakdown = dre_por_conta_contabil(request.church, inicio, fim)
+        return render(request, self.template_name, {"breakdown": breakdown, "inicio": inicio, "fim": fim})
+
+
+class ContabilExportView(IsChurchManagerMixin, View):
+    """CSV formatado pro contador importar — colunas Data/Código/Conta/
+    Tipo/D-C/Descrição/Valor, convenção que qualquer contador reconhece
+    (Débito pra despesa, Crédito pra receita) mesmo o sistema não fazendo
+    partida dobrada de verdade. Só inclui lançamentos QUE TÊM conta
+    vinculada — é um export pro contador, não substitui o CSV geral
+    (`TransactionExportView`), que já traz tudo."""
+
+    def get(self, request):
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = 'attachment; filename="financeiro-contabil.csv"'
+        response["Cache-Control"] = "private, no-store"
+        response.write("﻿")
+
+        writer = csv.writer(response)
+        writer.writerow(["Data", "Código da conta", "Conta", "Tipo", "D/C", "Descrição", "Valor"])
+        transacoes = (
+            Transaction.objects.filter(conta_contabil__isnull=False)
+            .select_related("conta_contabil").order_by("date")
+        )
+        for t in transacoes:
+            dc = "D" if t.type == Transaction.Type.EXPENSE else "C"
+            writer.writerow([
+                t.date.strftime("%d/%m/%Y"), t.conta_contabil.code, t.conta_contabil.name,
+                t.conta_contabil.get_tipo_display(), dc, t.description, t.amount,
+            ])
+        return response

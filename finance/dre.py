@@ -11,7 +11,7 @@ from decimal import Decimal
 
 from django.db.models import Sum
 
-from finance.models import Transaction
+from finance.models import ContaContabil, Transaction
 
 DRE_GROUPS = {
     Transaction.Category.TITHE: "Receitas",
@@ -60,6 +60,49 @@ def dre_breakdown(church, inicio, fim):
         "despesas": despesas,
         "resultado": receitas - despesas,
     }
+
+
+def dre_por_conta_contabil(church, inicio, fim):
+    """Mesmo DRE de `dre_breakdown`, mas agrupado pelo PLANO DE CONTAS
+    da igreja (`ContaContabil`) em vez da categoria fixa — só faz
+    sentido pra quem já vinculou lançamentos a contas (`Transaction.
+    conta_contabil`). Lançamentos sem conta vinculada caem num grupo
+    "Sem conta vinculada" separado, pra nada ficar invisível no
+    relatório em vez de simplesmente sumir da soma. `resultado` só some
+    Receita/Despesa — os grupos Ativo/Passivo/Patrimônio líquido
+    aparecem no relatório (a igreja pode ter contas desses tipos pra
+    organização própria) mas não entram na conta, já que o sistema não
+    rastreia saldo de ativo/passivo de verdade."""
+    linhas = (
+        Transaction.objects.filter(church=church, date__gte=inicio, date__lte=fim)
+        .values("conta_contabil_id", "conta_contabil__code", "conta_contabil__name", "conta_contabil__tipo")
+        .annotate(total=Sum("amount"))
+        .order_by("conta_contabil__code")
+    )
+
+    grupos_por_tipo = {
+        tipo: {"nome": label, "total": Decimal("0"), "contas": []}
+        for tipo, label in ContaContabil.Tipo.choices
+    }
+    sem_conta = {"nome": "Sem conta vinculada", "total": Decimal("0"), "contas": []}
+
+    for linha in linhas:
+        total = linha["total"] or Decimal("0")
+        if linha["conta_contabil_id"] is None:
+            sem_conta["total"] += total
+            sem_conta["contas"].append(("Lançamentos sem conta", total))
+            continue
+        grupo = grupos_por_tipo[linha["conta_contabil__tipo"]]
+        grupo["total"] += total
+        grupo["contas"].append((f"{linha['conta_contabil__code']} — {linha['conta_contabil__name']}", total))
+
+    grupos = [grupos_por_tipo[tipo] for tipo, _ in ContaContabil.Tipo.choices if grupos_por_tipo[tipo]["contas"]]
+    if sem_conta["contas"]:
+        grupos.append(sem_conta)
+
+    receitas = grupos_por_tipo[ContaContabil.Tipo.RECEITA]["total"]
+    despesas = grupos_por_tipo[ContaContabil.Tipo.DESPESA]["total"]
+    return {"grupos": grupos, "receitas": receitas, "despesas": despesas, "resultado": receitas - despesas}
 
 
 def saldo_acumulado(church, inicio, fim):

@@ -442,3 +442,95 @@ class TestBalancete:
 
     def test_member_cannot_view_balancete(self, member_client):
         assert member_client.get("/financeiro/balancete/").status_code == 403
+
+
+@pytest.mark.django_db
+class TestContaContabil:
+    def test_pastor_can_create_account(self, pastor_client, church):
+        from finance.models import ContaContabil
+
+        response = pastor_client.post("/financeiro/plano-de-contas/novo/", {
+            "code": "3.1.01", "name": "Dízimos", "tipo": "RECEITA", "is_active": "on",
+        })
+        assert response.status_code == 302
+        conta = ContaContabil.objects.get()
+        assert conta.church_id == church.pk
+        assert conta.code == "3.1.01"
+
+    def test_member_cannot_manage_chart_of_accounts(self, member_client):
+        assert member_client.get("/financeiro/plano-de-contas/").status_code == 403
+
+    def test_transaction_can_be_linked_to_account(self, pastor_client, church):
+        from finance.models import ContaContabil, Transaction
+
+        conta = ContaContabil.objects.create(church=church, code="3.1.01", name="Dízimos", tipo="RECEITA")
+        response = pastor_client.post("/financeiro/novo/", {
+            "type": "INCOME", "category": "TITHE", "amount": "150.00", "date": "2026-03-10",
+            "conta_contabil": conta.pk,
+        })
+        assert response.status_code == 302
+        transaction = Transaction.objects.get()
+        assert transaction.conta_contabil_id == conta.pk
+
+    def test_transaction_without_account_still_works(self, pastor_client, church):
+        """`conta_contabil` é opcional — quem não monta plano de contas
+        continua lançando normal, exatamente como antes desta feature."""
+        response = pastor_client.post("/financeiro/novo/", {
+            "type": "INCOME", "category": "TITHE", "amount": "50.00", "date": "2026-03-10",
+        })
+        assert response.status_code == 302
+
+    def test_deleting_account_does_not_delete_transaction(self, pastor_client, church):
+        from finance.models import ContaContabil, Transaction
+
+        conta = ContaContabil.objects.create(church=church, code="3.1.01", name="Dízimos", tipo="RECEITA")
+        transaction = Transaction.objects.create(
+            church=church, type="INCOME", category="TITHE", amount=100, date="2026-03-10", conta_contabil=conta,
+        )
+        pastor_client.post(f"/financeiro/plano-de-contas/{conta.pk}/excluir/")
+        transaction.refresh_from_db()
+        assert transaction.conta_contabil_id is None
+
+
+@pytest.mark.django_db
+class TestDREContabil:
+    def test_groups_by_account_type(self, church):
+        from finance.dre import dre_por_conta_contabil
+        from finance.models import ContaContabil
+
+        receita = ContaContabil.objects.create(church=church, code="3.1", name="Dízimos", tipo="RECEITA")
+        despesa = ContaContabil.objects.create(church=church, code="4.1", name="Aluguel", tipo="DESPESA")
+        Transaction.objects.create(church=church, type="INCOME", category="TITHE", amount=200, date=date(2026, 3, 10), conta_contabil=receita)
+        Transaction.objects.create(church=church, type="EXPENSE", category="RENT", amount=80, date=date(2026, 3, 12), conta_contabil=despesa)
+        Transaction.objects.create(church=church, type="INCOME", category="OFFERING", amount=30, date=date(2026, 3, 15))  # sem conta
+
+        breakdown = dre_por_conta_contabil(church, date(2026, 3, 1), date(2026, 3, 31))
+        assert breakdown["receitas"] == 200
+        assert breakdown["despesas"] == 80
+        assert breakdown["resultado"] == 120
+        grupo_nomes = [g["nome"] for g in breakdown["grupos"]]
+        assert "Sem conta vinculada" in grupo_nomes
+
+    def test_pastor_can_view_dre_contabil_pdf(self, pastor_client, church):
+        response = pastor_client.get("/financeiro/dre-contabil/?formato=pdf")
+        assert response.status_code == 200
+        assert response["Content-Type"] == "application/pdf"
+
+
+@pytest.mark.django_db
+class TestContabilExport:
+    def test_only_exports_transactions_with_account(self, pastor_client, church):
+        from finance.models import ContaContabil
+
+        conta = ContaContabil.objects.create(church=church, code="3.1.01", name="Dízimos", tipo="RECEITA")
+        Transaction.objects.create(church=church, type="INCOME", category="TITHE", amount=100, date="2026-03-10", conta_contabil=conta)
+        Transaction.objects.create(church=church, type="INCOME", category="OFFERING", amount=50, date="2026-03-11")  # sem conta
+
+        response = pastor_client.get("/financeiro/exportar/contabil/")
+        content = response.content.decode("utf-8-sig")
+        rows = [line for line in content.splitlines() if line.strip()]
+        assert len(rows) == 2  # cabeçalho + 1 linha (a sem conta fica de fora)
+        assert "3.1.01" in content
+
+    def test_member_cannot_export(self, member_client):
+        assert member_client.get("/financeiro/exportar/contabil/").status_code == 403

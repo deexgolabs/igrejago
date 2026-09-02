@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Plano de contas{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-slate-900">Plano de contas</h1>
+    <div class="flex gap-2">
+        <a href="{% url 'finance:list' %}" class="text-sm text-slate-500 hover:text-slate-800 px-2 py-2">← Financeiro</a>
+        <a href="{% url 'finance:conta_contabil_create' %}" class="text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg px-3 py-2">+ Nova conta</a>
+    </div>
+</div>
+<p class="text-sm text-slate-500 mb-4">
+    Opcional — só pra quem precisa de uma árvore de contas no formato que o contador reconhece. Sem isso, o
+    DRE/exportações simples (por categoria) continuam funcionando normalmente. Depois de cadastrar, vincule
+    cada lançamento a uma conta na tela de "Novo lançamento".
+</p>
+
+<div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr>
+                <th class="text-left px-4 py-3">Código</th>
+                <th class="text-left px-4 py-3">Nome</th>
+                <th class="text-left px-4 py-3">Tipo</th>
+                <th class="text-left px-4 py-3">Conta superior</th>
+                <th class="text-left px-4 py-3">Status</th>
+                <th class="text-right px-4 py-3">Ações</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+            {% for conta in contas %}
+            <tr class="hover:bg-slate-50">
+                <td class="px-4 py-3 font-mono text-slate-600">{{ conta.code }}</td>
+                <td class="px-4 py-3 font-medium text-slate-800">{{ conta.name }}</td>
+                <td class="px-4 py-3 text-slate-600">{{ conta.get_tipo_display }}</td>
+                <td class="px-4 py-3 text-slate-500">{{ conta.parent|default:"—" }}</td>
+                <td class="px-4 py-3">
+                    {% if conta.is_active %}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">Ativa</span>
+                    {% else %}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full bg-slate-100 text-slate-500">Inativa</span>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-3 text-right space-x-2">
+                    <a href="{% url 'finance:conta_contabil_update' conta.pk %}" class="text-slate-500 hover:text-brand-700">Editar</a>
+                    <a href="{% url 'finance:conta_contabil_delete' conta.pk %}" class="text-slate-500 hover:text-red-600">Excluir</a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">Nenhuma conta cadastrada ainda.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if contas %}
+<div class="mt-4 flex gap-2">
+    <a href="{% url 'finance:dre_contabil' %}" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Ver DRE por plano de contas</a>
+    <a href="{% url 'finance:export_contabil' %}" class="text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-100">Exportar pro contador (CSV)</a>
+</div>
+{% endif %}
+{% endblock %}

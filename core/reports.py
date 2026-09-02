@@ -194,6 +194,51 @@ def generate_dre_pdf(church_config, inicio, fim):
     return buffer.getvalue()
 
 
+def generate_dre_contabil_pdf(church_config, inicio, fim):
+    """Mesmo DRE de `generate_dre_pdf`, mas agrupado pelo plano de
+    contas configurável da igreja (`finance.dre.dre_por_conta_contabil`)
+    em vez da categoria fixa — ver docstring de lá."""
+    from finance.dre import dre_por_conta_contabil
+
+    breakdown = dre_por_conta_contabil(church_config, inicio, fim)
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=2 * cm, bottomMargin=2 * cm)
+    styles = getSampleStyleSheet()
+    story = []
+
+    story.append(Paragraph(church_config.name or "Church CRM", styles["Title"]))
+    story.append(Paragraph(
+        f"DRE por plano de contas — {inicio.strftime('%d/%m/%Y')} a {fim.strftime('%d/%m/%Y')}", styles["Heading2"],
+    ))
+    story.append(Spacer(1, 1 * cm))
+
+    for grupo in breakdown["grupos"]:
+        story.append(Paragraph(grupo["nome"], styles["Heading3"]))
+        rows = [[label, f"R$ {total:.2f}"] for label, total in grupo["contas"]] or [["—", "R$ 0,00"]]
+        rows.append(["Subtotal", f"R$ {grupo['total']:.2f}"])
+        story.append(_styled_table(rows))
+        story.append(Spacer(1, 0.5 * cm))
+
+    resultado_label = "Resultado do período (superávit)" if breakdown["resultado"] >= 0 else "Resultado do período (déficit)"
+    story.append(_styled_table([
+        ["Total de receitas", f"R$ {breakdown['receitas']:.2f}"],
+        ["Total de despesas", f"R$ {breakdown['despesas']:.2f}"],
+        [resultado_label, f"R$ {breakdown['resultado']:.2f}"],
+    ]))
+    story.append(Spacer(1, 1 * cm))
+    story.append(Paragraph(
+        f"Gerado em {date.today().strftime('%d/%m/%Y')} — agrupado pelo plano de contas da igreja; "
+        "grupos Ativo/Passivo/Patrimônio líquido não entram no resultado (o sistema não rastreia saldo "
+        "de ativo/passivo de verdade).",
+        styles["Normal"],
+    ))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
 def generate_balancete_pdf(church_config, inicio, fim):
     """"Balancete" simplificado — saldo acumulado mês a mês (ver
     `finance.dre.saldo_acumulado` pro porquê de não ser um balanço
