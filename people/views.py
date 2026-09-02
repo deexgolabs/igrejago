@@ -20,8 +20,10 @@ from django.views.generic import (
 from accounts.mixins import CanManagePeopleMixin, IsChurchManagerMixin
 from accounts.models import User
 from core.billing import pode_adicionar_pessoa
+from core.models import WebhookSubscription
 from core.ratelimit import RateLimitMixin
 from core.tenancy import PublicChurchMixin, TenantFormMixin
+from core.webhooks import disparar_webhook
 from notifications.models import EmailMessage, MessageTemplate, SMSMessage, WhatsAppMessage
 from people.forms import (
     CampaignForm,
@@ -241,7 +243,11 @@ class PersonCreateView(TenantFormMixin, CanManagePeopleMixin, CreateView):
             # nenhum (não ganha nenhum acesso extra nesse caso).
             form.instance.department = user.led_departments.first()
         messages.success(self.request, "Pessoa cadastrada com sucesso.")
-        return super().form_valid(form)
+        response = super().form_valid(form)
+        disparar_webhook(self.request.church, WebhookSubscription.EventType.PERSON_CREATED, {
+            "id": self.object.pk, "full_name": self.object.full_name,
+        })
+        return response
 
 
 class PersonUpdateView(CanManagePeopleMixin, UpdateView):

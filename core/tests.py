@@ -564,6 +564,111 @@ class TestMultiCampus:
         assert response.context["total_pessoas"] == 3
 
 
+@pytest.mark.django_db
+class TestWebhooks:
+    def test_pastor_can_create_subscription(self, pastor_client, church):
+        from core.models import WebhookSubscription
+
+        response = pastor_client.post("/webhooks/novo/", {
+            "url": "https://example.com/hook", "event_type": "PERSON_CREATED", "is_active": "on",
+        })
+        assert response.status_code == 302
+        sub = WebhookSubscription.objects.get()
+        assert sub.church_id == church.pk
+        assert sub.secret  # gerado sozinho
+
+    def test_member_cannot_manage_webhooks(self, member_client):
+        assert member_client.get("/webhooks/").status_code == 403
+
+    def test_person_created_queues_webhook_delivery(self, pastor_client, church):
+        from core.models import WebhookDelivery, WebhookSubscription
+
+        WebhookSubscription.objects.create(church=church, url="https://example.com/hook", event_type="PERSON_CREATED")
+        response = pastor_client.post("/pessoas/novo/", {
+            "full_name": "Novo Visitante", "is_visitor": "on", "status": "ACTIVE", "role": "VISITOR",
+        })
+        assert response.status_code == 302
+        delivery = WebhookDelivery.objects.get()
+        assert delivery.event_type == "PERSON_CREATED"
+        assert delivery.status == WebhookDelivery.Status.PENDING
+        assert delivery.payload["full_name"] == "Novo Visitante"
+
+    def test_no_delivery_queued_without_active_subscription(self, pastor_client, church):
+        from core.models import WebhookDelivery
+
+        pastor_client.post("/pessoas/novo/", {"full_name": "Sem Assinatura", "status": "ACTIVE", "role": "VISITOR"})
+        assert not WebhookDelivery.objects.exists()
+
+    def test_donation_transaction_queues_webhook(self, pastor_client, church):
+        from core.models import WebhookDelivery, WebhookSubscription
+
+        WebhookSubscription.objects.create(church=church, url="https://example.com/hook", event_type="DONATION_RECEIVED")
+        response = pastor_client.post("/financeiro/novo/", {
+            "type": "INCOME", "category": "TITHE", "amount": "100.00", "date": "2026-03-10",
+            "payment_method": "PIX",
+        })
+        assert response.status_code == 302
+        assert WebhookDelivery.objects.filter(event_type="DONATION_RECEIVED").exists()
+
+    def test_expense_transaction_does_not_queue_donation_webhook(self, pastor_client, church):
+        from core.models import WebhookDelivery, WebhookSubscription
+
+        WebhookSubscription.objects.create(church=church, url="https://example.com/hook", event_type="DONATION_RECEIVED")
+        pastor_client.post("/financeiro/novo/", {
+            "type": "EXPENSE", "category": "RENT", "amount": "100.00", "date": "2026-03-10",
+        })
+        assert not WebhookDelivery.objects.exists()
+
+
+@pytest.mark.django_db
+class TestProcessarFilaWebhooksCommand:
+    def test_signs_payload_and_marks_sent(self, church):
+        import hashlib
+        import hmac
+        import json
+        from unittest.mock import MagicMock, patch
+
+        from django.core.management import call_command
+
+        from core.models import WebhookDelivery, WebhookSubscription
+
+        sub = WebhookSubscription.objects.create(church=church, url="https://example.com/hook", event_type="PERSON_CREATED")
+        delivery = WebhookDelivery.objects.create(
+            church=church, subscription=sub, event_type="PERSON_CREATED", payload={"id": 1, "full_name": "X"},
+        )
+
+        fake_response = MagicMock(status_code=200, ok=True)
+        with patch("core.management.commands.processar_fila_webhooks.requests.post", return_value=fake_response) as mock_post:
+            call_command("processar_fila_webhooks")
+
+        delivery.refresh_from_db()
+        assert delivery.status == WebhookDelivery.Status.SENT
+        assert delivery.response_status_code == 200
+
+        _, kwargs = mock_post.call_args
+        expected_signature = hmac.new(sub.secret.encode(), kwargs["data"], hashlib.sha256).hexdigest()
+        assert kwargs["headers"]["X-IgrejaGo-Signature"] == expected_signature
+        assert json.loads(kwargs["data"]) == {"id": 1, "full_name": "X"}
+
+    def test_marks_failed_on_non_ok_response(self, church):
+        from unittest.mock import MagicMock, patch
+
+        from django.core.management import call_command
+
+        from core.models import WebhookDelivery, WebhookSubscription
+
+        sub = WebhookSubscription.objects.create(church=church, url="https://example.com/hook", event_type="PERSON_CREATED")
+        delivery = WebhookDelivery.objects.create(church=church, subscription=sub, event_type="PERSON_CREATED", payload={})
+
+        fake_response = MagicMock(status_code=500, ok=False)
+        with patch("core.management.commands.processar_fila_webhooks.requests.post", return_value=fake_response):
+            call_command("processar_fila_webhooks")
+
+        delivery.refresh_from_db()
+        assert delivery.status == WebhookDelivery.Status.FAILED
+        assert delivery.attempt_count == 1
+
+
 class TestMediaUrl:
     def test_media_url_is_absolute(self, settings):
         """Regressão: `MEDIA_URL` sem barra no início ("media/" em vez de

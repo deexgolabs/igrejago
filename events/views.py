@@ -123,6 +123,14 @@ class EventRegistrationView(PublicChurchMixin, RateLimitMixin, View):
         )
         registration.save()
 
+        from core.models import WebhookSubscription
+        from core.webhooks import disparar_webhook
+
+        disparar_webhook(event.church, WebhookSubscription.EventType.EVENT_REGISTRATION_CREATED, {
+            "id": registration.pk, "event": event.title, "full_name": registration.full_name,
+            "on_waitlist": registration.on_waitlist,
+        })
+
         if event.is_paid and not registration.on_waitlist:
             return redirect(
                 "events_public:register_payment", church_slug=self.church.slug, slug=event.slug, pk=registration.pk

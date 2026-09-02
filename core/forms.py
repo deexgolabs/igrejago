@@ -4,7 +4,7 @@ from django import forms
 from django.contrib.auth import password_validation
 
 from accounts.models import User
-from core.models import Church, ShortLink
+from core.models import Church, ShortLink, WebhookSubscription
 
 
 class ChurchConfigForm(forms.ModelForm):
@@ -121,7 +121,7 @@ RESERVED_SLUGS = {
     "health", "manifest.json", "sw.js", "relatorio.pdf", "configuracoes",
     "manual", "auditoria", "cadastro-igreja", "conta-suspensa", "privacidade",
     "meus-dados", "assinatura", "gestao", "links-curtos", "static", "media",
-    "favicon.ico",
+    "favicon.ico", "api", "webhooks", "trocar-unidade", "rede",
 }
 
 
@@ -153,3 +153,9 @@ class ShortLinkForm(forms.ModelForm):
         if not value.startswith("/"):
             value = f"/{value}"
         return value
+
+
+class WebhookSubscriptionForm(forms.ModelForm):
+    class Meta:
+        model = WebhookSubscription
+        fields = ["url", "event_type", "is_active"]

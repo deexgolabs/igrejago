@@ -341,3 +341,69 @@ class ShortLink(TenantModel):
         quando configurado — mesmo padrão de `linkbio.BioPage.public_url`)."""
         domain = settings.PUBLIC_LINK_DOMAIN
         return f"{domain}/{self.slug}" if domain else f"/{self.slug}"
+
+
+class WebhookSubscription(TenantModel):
+    """Uma URL cadastrada pela igreja pra ser avisada (POST) quando um
+    evento acontece no sistema (ex.: nova pessoa cadastrada) — o caso
+    de uso mais comum é conectar no Zapier/Make/planilha, sem escrever
+    código. `secret` assina o payload (HMAC-SHA256, mesma convenção de
+    GitHub/Stripe) pra quem recebe conseguir confirmar que veio
+    realmente daqui."""
+
+    class EventType(models.TextChoices):
+        PERSON_CREATED = "PERSON_CREATED", "Nova pessoa cadastrada"
+        DONATION_RECEIVED = "DONATION_RECEIVED", "Doação recebida"
+        EVENT_REGISTRATION_CREATED = "EVENT_REGISTRATION_CREATED", "Nova inscrição em evento"
+
+    url = models.URLField("URL de destino", max_length=500)
+    event_type = models.CharField("Evento", max_length=30, choices=EventType.choices)
+    secret = models.CharField("Segredo (HMAC)", max_length=64, editable=False)
+    is_active = models.BooleanField("Ativa", default=True)
+    created_at = models.DateTimeField("Criada em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Assinatura de webhook"
+        verbose_name_plural = "Assinaturas de webhook"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.get_event_type_display()} → {self.url}"
+
+    def save(self, *args, **kwargs):
+        if not self.secret:
+            import secrets
+            self.secret = secrets.token_hex(32)
+        super().save(*args, **kwargs)
+
+
+class WebhookDelivery(TenantModel):
+    """Log de UMA tentativa de entrega — criado como PENDING assim que o
+    evento acontece (`core.webhooks.disparar_webhook`), o POST de
+    verdade é feito depois por `processar_fila_webhooks` (mesmo motivo
+    de sempre: não travar a request do usuário esperando a resposta de
+    uma URL de terceiro)."""
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Aguardando"
+        SENT = "SENT", "Entregue"
+        FAILED = "FAILED", "Falhou"
+
+    subscription = models.ForeignKey(
+        WebhookSubscription, on_delete=models.CASCADE, related_name="deliveries", verbose_name="Assinatura",
+    )
+    event_type = models.CharField("Evento", max_length=30, choices=WebhookSubscription.EventType.choices)
+    payload = models.JSONField("Payload")
+    status = models.CharField("Status", max_length=10, choices=Status.choices, default=Status.PENDING)
+    response_status_code = models.PositiveIntegerField("Status HTTP da resposta", null=True, blank=True)
+    attempt_count = models.PositiveIntegerField("Tentativas", default=0)
+    created_at = models.DateTimeField("Criado em", auto_now_add=True)
+    sent_at = models.DateTimeField("Entregue em", null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Entrega de webhook"
+        verbose_name_plural = "Entregas de webhook"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.get_event_type_display()} — {self.get_status_display()}"

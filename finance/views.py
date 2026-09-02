@@ -16,7 +16,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView, View
 
 from accounts.mixins import IsChurchManagerMixin
-from core.models import Church
+from core.models import Church, WebhookSubscription
 from core.qr import qr_data_uri
 from core.tenancy import TenantFormMixin
 from core.reports import (
@@ -31,6 +31,27 @@ from finance.dre import dre_breakdown, saldo_acumulado
 from finance.forms import DonationAmountForm, RecurringPledgeForm, RecurringPledgeSubscribeForm, TransactionForm
 from finance.models import Budget, Donation, RecurringPledge, Transaction
 from people.models import Person
+
+DONATION_CATEGORIES = (Transaction.Category.TITHE, Transaction.Category.OFFERING, Transaction.Category.DONATION)
+
+
+def _disparar_webhook_doacao(transaction):
+    """Chamado depois de criar um `Transaction` de entrada em categoria
+    de doação (dízimo/oferta/doação avulsa) — nos 3 pontos onde isso
+    acontece: lançamento manual, confirmação de PIX e webhook do
+    Mercado Pago. Import local (não no topo) pra evitar um ciclo de
+    import entre `finance.views` e `core.webhooks` só por causa disso."""
+    from core.webhooks import disparar_webhook
+
+    if transaction.type != Transaction.Type.INCOME or transaction.category not in DONATION_CATEGORIES:
+        return
+    disparar_webhook(transaction.church, WebhookSubscription.EventType.DONATION_RECEIVED, {
+        "id": transaction.pk,
+        "category": transaction.category,
+        "amount": str(transaction.amount),
+        "date": transaction.date.isoformat(),
+        "person_name": transaction.person.full_name if transaction.person else None,
+    })
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +196,9 @@ class TransactionCreateView(TenantFormMixin, IsChurchManagerMixin, CreateView):
     def form_valid(self, form):
         form.instance.created_by = self.request.user
         messages.success(self.request, "Lançamento registrado.")
-        return super().form_valid(form)
+        response = super().form_valid(form)
+        _disparar_webhook_doacao(self.object)
+        return response
 
 
 class TransactionUpdateView(IsChurchManagerMixin, UpdateView):
@@ -619,13 +642,14 @@ class DonationWebhookView(View):
                 donation.status = Donation.Status.PAID
                 donation.payment_reference = str(payment_id)
                 donation.save(update_fields=["status", "payment_reference"])
-                Transaction.todas_as_igrejas.create(
+                transaction = Transaction.todas_as_igrejas.create(
                     church=church_config,
                     type=Transaction.Type.INCOME, category=Transaction.Category.DONATION,
                     amount=payment.get("transaction_amount") or donation.amount,
                     date=date.today(), description="Doação via Mercado Pago (Portal do Membro)",
                     person=donation.person, payment_method=Transaction.PaymentMethod.CARD,
                 )
+                _disparar_webhook_doacao(transaction)
         return HttpResponse(status=200)
 
 
@@ -647,7 +671,7 @@ class DonationConfirmPixView(IsChurchManagerMixin, View):
         donation = get_object_or_404(Donation, pk=pk, status=Donation.Status.PENDING)
         donation.status = Donation.Status.PAID
         donation.save(update_fields=["status"])
-        Transaction.objects.create(
+        transaction = Transaction.objects.create(
             church=donation.church,
             type=Transaction.Type.INCOME, category=Transaction.Category.DONATION,
             amount=donation.amount, date=date.today(),
@@ -655,6 +679,7 @@ class DonationConfirmPixView(IsChurchManagerMixin, View):
             person=donation.person, payment_method=Transaction.PaymentMethod.PIX,
             created_by=request.user,
         )
+        _disparar_webhook_doacao(transaction)
         messages.success(request, "Doação confirmada e lançada no financeiro.")
         return redirect("finance:donation_list")
 

@@ -16,6 +16,7 @@ urlpatterns = [
     path("checkin/", include("checkin.urls")),
     path("escalas/", include("escalas.urls")),
     path("sermoes/", include("sermons.urls")),
+    path("api/", include("api.urls")),
 
     # Páginas públicas (sem login) — a igreja é resolvida pelo próprio
     # slug na URL (`core.tenancy.PublicChurchMixin` ou equivalente manual

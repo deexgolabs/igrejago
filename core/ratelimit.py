@@ -10,19 +10,29 @@ from django.http import HttpResponse
 
 
 class RateLimitMixin:
-    """Aplica em qualquer View baseada em classe — limita por IP e por
-    `rate_limit_key` (pra login, cadastro público e inscrição em evento
-    terem contadores independentes). Só conta requisições POST, que são
-    as que importam pra brute-force/spam."""
+    """Aplica em qualquer View baseada em classe — limita por identidade
+    (IP, por padrão) e por `rate_limit_key` (pra login, cadastro público
+    e inscrição em evento terem contadores independentes). Por padrão só
+    conta requisições POST, que são as que importam pra brute-force/spam.
+
+    `rate_limit_methods`/`_rate_limit_identity()`: pontos de extensão
+    pra quem precisa de outro critério — ver `api.auth.ApiKeyRateLimitMixin`,
+    que conta GET (a API de leitura não tem POST) e usa a CHAVE DA API em
+    vez do IP (várias igrejas atrás do mesmo NAT/proxy não devem dividir
+    o mesmo limite)."""
 
     rate_limit_key = "generic"
     rate_limit_max = 20
     rate_limit_window_seconds = 300
+    rate_limit_methods = ("POST",)
+
+    def _rate_limit_identity(self, request):
+        return request.META.get("REMOTE_ADDR", "unknown")
 
     def dispatch(self, request, *args, **kwargs):
-        if request.method == "POST":
-            ip = request.META.get("REMOTE_ADDR", "unknown")
-            cache_key = f"ratelimit:{self.rate_limit_key}:{ip}"
+        if request.method in self.rate_limit_methods:
+            identity = self._rate_limit_identity(request)
+            cache_key = f"ratelimit:{self.rate_limit_key}:{identity}"
             count = cache.get(cache_key, 0)
             if count >= self.rate_limit_max:
                 return HttpResponse("Muitas tentativas. Aguarde alguns minutos e tente novamente.", status=429)

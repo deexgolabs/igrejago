@@ -22,9 +22,9 @@ from django.views.generic import CreateView, DeleteView, ListView, TemplateView,
 
 from accounts.mixins import IsChurchManagerMixin, IsPlatformOwnerMixin
 from core.billing import PLANOS
-from core.forms import ChurchConfigForm, ChurchOverrideForm, ChurchSignupForm, ShortLinkForm
+from core.forms import ChurchConfigForm, ChurchOverrideForm, ChurchSignupForm, ShortLinkForm, WebhookSubscriptionForm
 from core.mercadopago_billing import consultar_assinatura, criar_assinatura
-from core.models import AuditLog, Church, DataDeletionRequest, ShortLink
+from core.models import AuditLog, Church, DataDeletionRequest, ShortLink, WebhookDelivery, WebhookSubscription
 from core.ratelimit import RateLimitMixin
 from core.reports import generate_general_report_pdf
 from core.tenancy import TenantFormMixin
@@ -994,3 +994,50 @@ class ChurchNetworkDashboardView(IsChurchManagerMixin, View):
             "total_receita_mes": sum(linha["receita_mes"] for linha in linhas),
         }
         return render(request, self.template_name, context)
+
+
+class WebhookSubscriptionListView(IsChurchManagerMixin, ListView):
+    model = WebhookSubscription
+    template_name = "core/webhook_list.html"
+    context_object_name = "subscriptions"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["recent_deliveries"] = WebhookDelivery.objects.select_related("subscription").order_by("-created_at")[:20]
+        return context
+
+
+class WebhookSubscriptionCreateView(TenantFormMixin, IsChurchManagerMixin, CreateView):
+    model = WebhookSubscription
+    form_class = WebhookSubscriptionForm
+    template_name = "core/webhook_form.html"
+    success_url = reverse_lazy("core:webhook_list")
+
+    def form_valid(self, form):
+        messages.success(self.request, "Webhook cadastrado.")
+        return super().form_valid(form)
+
+
+class WebhookSubscriptionDeleteView(IsChurchManagerMixin, DeleteView):
+    model = WebhookSubscription
+    template_name = "core/webhook_confirm_delete.html"
+    success_url = reverse_lazy("core:webhook_list")
+
+    def form_valid(self, form):
+        messages.success(self.request, "Webhook removido.")
+        return super().form_valid(form)
+
+
+class GenerateApiKeyView(IsChurchManagerMixin, View):
+    """Gera (ou regenera) a chave de API da igreja — botão em
+    Configurações. Regenerar invalida a chave anterior na hora (não tem
+    "período de graça"): qualquer integração usando a chave antiga
+    passa a receber 401 imediatamente."""
+
+    def post(self, request):
+        import secrets
+
+        request.church.api_key = secrets.token_hex(32)
+        request.church.save(update_fields=["api_key"])
+        messages.success(request, "Nova chave de API gerada.")
+        return redirect("core:settings")

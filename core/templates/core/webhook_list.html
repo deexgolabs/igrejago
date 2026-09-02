@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Webhooks{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-slate-900">Webhooks</h1>
+    <a href="{% url 'core:webhook_create' %}" class="text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg px-3 py-2">+ Novo webhook</a>
+</div>
+<p class="text-sm text-slate-500 mb-4">
+    Cadastre uma URL pra ser avisada (POST) quando algo acontecer no sistema — útil pra conectar no
+    Zapier/Make/planilha. O corpo vem assinado no cabeçalho <code>X-IgrejaGo-Signature</code>
+    (HMAC-SHA256 com o segredo mostrado abaixo).
+</p>
+
+<div class="bg-white border border-slate-200 rounded-xl overflow-x-auto mb-8">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr>
+                <th class="text-left px-4 py-3">Evento</th>
+                <th class="text-left px-4 py-3">URL</th>
+                <th class="text-left px-4 py-3">Segredo</th>
+                <th class="text-left px-4 py-3">Status</th>
+                <th class="text-right px-4 py-3">Ações</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+            {% for sub in subscriptions %}
+            <tr class="hover:bg-slate-50">
+                <td class="px-4 py-3 font-medium text-slate-800">{{ sub.get_event_type_display }}</td>
+                <td class="px-4 py-3 text-slate-500 truncate max-w-xs">{{ sub.url }}</td>
+                <td class="px-4 py-3 text-slate-400 font-mono text-xs">{{ sub.secret|truncatechars:16 }}</td>
+                <td class="px-4 py-3">
+                    {% if sub.is_active %}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">Ativa</span>
+                    {% else %}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full bg-slate-100 text-slate-500">Inativa</span>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-3 text-right">
+                    <a href="{% url 'core:webhook_delete' sub.pk %}" class="text-slate-500 hover:text-red-600">Excluir</a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">Nenhum webhook cadastrado ainda.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<h2 class="text-sm font-semibold text-slate-700 mb-3">Entregas recentes</h2>
+<div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr>
+                <th class="text-left px-4 py-3">Evento</th>
+                <th class="text-left px-4 py-3">Status</th>
+                <th class="text-left px-4 py-3">HTTP</th>
+                <th class="text-left px-4 py-3">Quando</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+            {% for delivery in recent_deliveries %}
+            <tr>
+                <td class="px-4 py-2 text-slate-700">{{ delivery.get_event_type_display }}</td>
+                <td class="px-4 py-2">
+                    {% if delivery.status == "SENT" %}<span class="text-emerald-600">Entregue</span>
+                    {% elif delivery.status == "FAILED" %}<span class="text-red-600">Falhou</span>
+                    {% else %}<span class="text-amber-600">Aguardando</span>{% endif %}
+                </td>
+                <td class="px-4 py-2 text-slate-500">{{ delivery.response_status_code|default:"—" }}</td>
+                <td class="px-4 py-2 text-slate-500">{{ delivery.created_at|date:"d/m/Y H:i" }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" class="px-4 py-8 text-center text-slate-400">Nenhuma entrega ainda.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
