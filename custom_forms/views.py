@@ -221,6 +221,7 @@ class FormResponseExportView(IsChurchManagerMixin, View):
 
         response = HttpResponse(content_type="text/csv; charset=utf-8")
         response["Content-Disposition"] = f'attachment; filename="respostas-{custom_form.slug}.csv"'
+        response["Cache-Control"] = "private, no-store"
         # BOM escrito manualmente uma única vez — ver nota em
         # events.RegistrationExportView sobre por que não usar
         # charset="utf-8-sig" (duplicaria o BOM a cada linha).

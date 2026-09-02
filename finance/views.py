@@ -101,6 +101,7 @@ class TransactionExportView(IsChurchManagerMixin, View):
     def get(self, request):
         response = HttpResponse(content_type="text/csv; charset=utf-8")
         response["Content-Disposition"] = 'attachment; filename="financeiro.csv"'
+        response["Cache-Control"] = "private, no-store"
         response.write("﻿")
 
         writer = csv.writer(response)
@@ -139,6 +140,7 @@ class TransactionExportExcelView(IsChurchManagerMixin, View):
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         response["Content-Disposition"] = 'attachment; filename="financeiro.xlsx"'
+        response["Cache-Control"] = "private, no-store"
         wb.save(response)
         return response
 
@@ -478,6 +480,12 @@ class AnnualDonationReceiptPDFView(LoginRequiredMixin, View):
         pdf_bytes = generate_annual_donation_receipt_pdf(request.church, person, year)
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="recibo-anual-{year}-{person.pk}.pdf"'
+        # Achado ao vivo em produção: a Cloudflare cacheou essa URL (mesmo
+        # caminho pra QUALQUER pessoa logada) e serviu o PDF de um membro
+        # pro próximo que abrisse o link — `Cache-Control` explícito é o
+        # que garante que um proxy/CDN na frente nunca guarda uma resposta
+        # personalizada como essa.
+        response["Cache-Control"] = "private, no-store"
         return response
 
 
@@ -643,4 +651,5 @@ class DonationReceiptPDFView(LoginRequiredMixin, View):
         pdf_bytes = generate_donation_receipt_pdf(donation.church, donation)
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="recibo-doacao-{donation.pk}.pdf"'
+        response["Cache-Control"] = "private, no-store"
         return response

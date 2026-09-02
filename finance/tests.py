@@ -176,6 +176,12 @@ class TestDonationReceipt:
         assert response.status_code == 200
         assert response["Content-Type"] == "application/pdf"
         assert response.content.startswith(b"%PDF-")
+        # Regressão real, achada em produção: sem `Cache-Control`
+        # explícito, a Cloudflare (proxy na frente do site) guardava essa
+        # resposta e servia o recibo de UM membro pro próximo que abrisse
+        # a mesma URL — o cabeçalho é o que impede um proxy/CDN de cachear
+        # um documento personalizado como esse.
+        assert response["Cache-Control"] == "private, no-store"
 
     def test_staff_can_download_any_receipt(self, pastor_client, person, church_config):
         donation = Donation.objects.create(church=church_config, person=person, amount=100, status=Donation.Status.PAID)
@@ -347,6 +353,10 @@ class TestAnnualDonationReceipt:
         assert response.status_code == 200
         assert response["Content-Type"] == "application/pdf"
         assert response.content.startswith(b"%PDF-")
+        # Regressão real, achada em produção: a Cloudflare cacheou essa
+        # URL (mesmo caminho pra QUALQUER pessoa logada) e serviu o
+        # recibo de um membro pro próximo que abrisse o link.
+        assert response["Cache-Control"] == "private, no-store"
 
     def test_staff_can_download_for_another_person(self, pastor_client, person, church_config):
         response = pastor_client.get(f"/financeiro/recibo-anual/{person.pk}.pdf")

@@ -236,6 +236,7 @@ class GeneralReportPDFView(IsChurchManagerMixin, View):
         pdf_bytes = generate_general_report_pdf(request.church)
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
         response["Content-Disposition"] = 'attachment; filename="relatorio-geral.pdf"'
+        response["Cache-Control"] = "private, no-store"
         return response
 
 
@@ -492,6 +493,7 @@ class MeusDadosExportView(LoginRequiredMixin, View):
         }
         response = JsonResponse(data, json_dumps_params={"ensure_ascii": False, "indent": 2})
         response["Content-Disposition"] = 'attachment; filename="meus-dados.json"'
+        response["Cache-Control"] = "private, no-store"
         return response
 
 

@@ -350,6 +350,7 @@ class RegistrationExportView(IsChurchManagerMixin, View):
         event = get_object_or_404(Event, slug=slug)
         response = HttpResponse(content_type="text/csv; charset=utf-8")
         response["Content-Disposition"] = f'attachment; filename="inscritos-{event.slug}.csv"'
+        response["Cache-Control"] = "private, no-store"
         # BOM escrito manualmente (uma única vez) para o Excel reconhecer
         # UTF-8 — usar charset="utf-8-sig" na response faria o Django
         # prefixar um BOM a CADA chamada de write() (uma por linha do CSV
