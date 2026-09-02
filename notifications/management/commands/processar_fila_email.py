@@ -43,7 +43,19 @@ class Command(BaseCommand):
 
         sent = failed = 0
         for msg in eligible:
-            ok, error = enviar_email_campanha(msg.email, msg.subject, msg.body, church_config=church_config)
+            # Confere de novo no momento do envio, não só na criação da
+            # campanha (`people.EmailCampaignSendView`) — a pessoa pode
+            # ter se descadastrado DEPOIS que a mensagem já tinha
+            # entrado na fila, mas ANTES de sair de verdade.
+            if msg.person_id and msg.person.email_opted_out_at:
+                msg.status = EmailMessage.Status.CANCELLED
+                msg.error_message = "Pessoa descadastrada antes do envio."
+                msg.save(update_fields=["status", "error_message"])
+                continue
+
+            ok, error = enviar_email_campanha(
+                msg.email, msg.subject, msg.body, church_config=church_config, tracking_token=msg.tracking_token,
+            )
             if ok:
                 msg.status = EmailMessage.Status.SENT
                 msg.sent_at = timezone.now()

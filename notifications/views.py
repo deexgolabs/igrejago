@@ -4,6 +4,7 @@ from datetime import timedelta
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.models import F
 from django.http import HttpResponse, HttpResponseBadRequest, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -492,3 +493,68 @@ class SMSMessageCancelView(CanManagePeopleMixin, View):
         message.save(update_fields=["status"])
         messages.success(request, "SMS cancelado.")
         return redirect("notifications:sms_queue")
+
+
+# 1x1 GIF transparente (43 bytes) — o pixel de rastreio de abertura de
+# e-mail devolve sempre isto, hardcoded (não tem porquê depender de
+# Pillow/arquivo estático só pra 43 bytes fixos que nunca mudam).
+_TRANSPARENT_GIF = (
+    b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04"
+    b"\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
+)
+
+
+class EmailOpenTrackingView(View):
+    """Pixel de rastreio — GET público, sem login, resolvido por
+    `EmailMessage.tracking_token` (mesmo espírito de
+    `ConfirmarEscalaView`, resolvido por token). Devolve o GIF mesmo se
+    o token não existir — nunca dar pista pra fora de que um token é
+    inválido/foi adivinhado."""
+
+    def get(self, request, token):
+        EmailMessage.todas_as_igrejas.filter(tracking_token=token, opened_at__isnull=True).update(
+            opened_at=timezone.now()
+        )
+        EmailMessage.todas_as_igrejas.filter(tracking_token=token).update(open_count=F("open_count") + 1)
+        response = HttpResponse(_TRANSPARENT_GIF, content_type="image/gif")
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+class EmailClickTrackingView(View):
+    """Todo link dentro de uma campanha passa por aqui antes do destino
+    de verdade (`core.email_campaign._linkify_com_rastreio`) — registra
+    o clique e redireciona. `?url=` só é seguido se for http(s) —
+    nunca um esquema tipo `javascript:`."""
+
+    def get(self, request, token):
+        msg = get_object_or_404(EmailMessage.todas_as_igrejas, tracking_token=token)
+        EmailMessage.todas_as_igrejas.filter(pk=msg.pk).update(
+            click_count=F("click_count") + 1, clicked_at=msg.clicked_at or timezone.now(),
+        )
+        target = request.GET.get("url", "")
+        if not target.startswith(("http://", "https://")):
+            return redirect("core:dashboard")
+        response = redirect(target)
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+class EmailUnsubscribeView(View):
+    """Link "cancelar inscrição" no rodapé de todo e-mail de campanha —
+    GET mostra a confirmação, POST efetiva (também é o que o cabeçalho
+    `List-Unsubscribe-Post` do e-mail deixa o Gmail/Outlook chamarem
+    direto, sem abrir página nenhuma — "descadastro de 1 clique")."""
+
+    template_name = "notifications/email_unsubscribe.html"
+
+    def get(self, request, token):
+        msg = get_object_or_404(EmailMessage.todas_as_igrejas, tracking_token=token)
+        return render(request, self.template_name, {"msg": msg, "done": False})
+
+    def post(self, request, token):
+        msg = get_object_or_404(EmailMessage.todas_as_igrejas, tracking_token=token)
+        if msg.person_id:
+            from people.models import Person
+            Person.todas_as_igrejas.filter(pk=msg.person_id).update(email_opted_out_at=timezone.now())
+        return render(request, self.template_name, {"msg": msg, "done": True})

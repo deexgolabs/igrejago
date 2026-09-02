@@ -23,6 +23,8 @@
                 <th class="text-left px-4 py-3">Assunto</th>
                 <th class="text-left px-4 py-3">Campanha</th>
                 <th class="text-left px-4 py-3">Status</th>
+                <th class="text-left px-4 py-3">Aberto</th>
+                <th class="text-left px-4 py-3">Clicado</th>
                 <th class="text-right px-4 py-3">Ações</th>
             </tr>
         </thead>
@@ -44,6 +46,12 @@
                     <p class="text-xs text-red-500 mt-1">{{ msg.error_message|truncatechars:40 }}</p>
                     {% endif %}
                 </td>
+                <td class="px-4 py-3 text-xs text-slate-500">
+                    {% if msg.opened_at %}{{ msg.opened_at|date:"d/m H:i" }}{% if msg.open_count > 1 %} ({{ msg.open_count }}x){% endif %}{% else %}—{% endif %}
+                </td>
+                <td class="px-4 py-3 text-xs text-slate-500">
+                    {% if msg.clicked_at %}{{ msg.clicked_at|date:"d/m H:i" }}{% if msg.click_count > 1 %} ({{ msg.click_count }}x){% endif %}{% else %}—{% endif %}
+                </td>
                 <td class="px-4 py-3 text-right">
                     {% if msg.status == 'PENDING' %}
                     <form method="post" action="{% url 'notifications:email_cancel' msg.pk %}" class="inline">
@@ -54,7 +62,7 @@
                 </td>
             </tr>
             {% empty %}
-            <tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">Nenhum e-mail na fila.</td></tr>
+            <tr><td colspan="7" class="px-4 py-8 text-center text-slate-400">Nenhum e-mail na fila.</td></tr>
             {% endfor %}
         </tbody>
     </table>

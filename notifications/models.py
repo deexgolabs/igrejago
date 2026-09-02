@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 from django.db import models
 
@@ -145,7 +147,13 @@ class EmailMessage(TenantModel):
     """Fila de e-mail em massa — mesmo espírito de `WhatsAppMessage`
     (nada é enviado na hora que a linha é criada; quem manda de verdade
     é `processar_fila_email`, respeitando `Church.email_batch_size` por
-    execução pra não estourar cota do provedor SMTP)."""
+    execução pra não estourar cota do provedor SMTP).
+
+    `tracking_token` é o que identifica ESTA mensagem nas 3 URLs
+    públicas de rastreio (`notifications.EmailOpenTrackingView`/
+    `EmailClickTrackingView`/`EmailUnsubscribeView`) — mesmo espírito de
+    `EscalaVoluntario.confirm_token`, um UUID por linha, nunca o `pk`
+    direto (não dá pra adivinhar qual é o próximo)."""
 
     class Status(models.TextChoices):
         PENDING = "PENDING", "Aguardando"
@@ -165,6 +173,12 @@ class EmailMessage(TenantModel):
     scheduled_for = models.DateTimeField("Agendada para", null=True, blank=True)
     sent_at = models.DateTimeField("Enviada em", null=True, blank=True)
     error_message = models.CharField("Erro", max_length=255, blank=True)
+
+    tracking_token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+    opened_at = models.DateTimeField("Aberto em", null=True, blank=True)
+    open_count = models.PositiveIntegerField("Vezes aberto", default=0)
+    clicked_at = models.DateTimeField("Clicado em", null=True, blank=True)
+    click_count = models.PositiveIntegerField("Cliques", default=0)
 
     campaign_label = models.CharField("Campanha", max_length=100, blank=True)
     created_by = models.ForeignKey(

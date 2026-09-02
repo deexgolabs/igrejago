@@ -1,8 +1,11 @@
 from django.urls import path
 
 from notifications.views import (
+    EmailClickTrackingView,
     EmailMessageCancelView,
+    EmailOpenTrackingView,
     EmailQueueListView,
+    EmailUnsubscribeView,
     MessageCancelView,
     MessageQueueListView,
     MessageResendView,
@@ -31,6 +34,9 @@ urlpatterns = [
 
     path("email/", EmailQueueListView.as_view(), name="email_queue"),
     path("email/<int:pk>/cancelar/", EmailMessageCancelView.as_view(), name="email_cancel"),
+    path("email/rastrear/<uuid:token>.gif", EmailOpenTrackingView.as_view(), name="email_open_tracking"),
+    path("email/clique/<uuid:token>/", EmailClickTrackingView.as_view(), name="email_click_tracking"),
+    path("email/cancelar/<uuid:token>/", EmailUnsubscribeView.as_view(), name="email_unsubscribe"),
 
     path("sms/", SMSQueueListView.as_view(), name="sms_queue"),
     path("sms/<int:pk>/cancelar/", SMSMessageCancelView.as_view(), name="sms_cancel"),

@@ -209,6 +209,12 @@ class Person(TenantModel):
     # nesse formulário).
     privacy_consent_at = models.DateTimeField("Consentimento LGPD em", null=True, blank=True)
 
+    email_opted_out_at = models.DateTimeField(
+        "Descadastrado de e-mail em", null=True, blank=True,
+        help_text="Preenchido sozinho quando a pessoa clica \"cancelar inscrição\" num e-mail de campanha — "
+                   "a partir daí ela some do público de qualquer campanha nova (ver notifications.EmailMessage).",
+    )
+
     # Metadados
     created_at = models.DateTimeField("Cadastrado em", auto_now_add=True)
     updated_at = models.DateTimeField("Atualizado em", auto_now=True)

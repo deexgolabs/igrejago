@@ -693,3 +693,107 @@ class TestEmailAndSMSQueueLists:
 
     def test_member_cannot_view_sms_queue(self, member_client):
         assert member_client.get("/mensagens/sms/").status_code == 403
+
+
+@pytest.mark.django_db
+class TestEmailOpenTracking:
+    def test_first_open_sets_opened_at_and_increments_count(self, client, church):
+        msg = EmailMessage.objects.create(church=church, email="a@example.com", subject="x", body="y")
+        response = client.get(f"/mensagens/email/rastrear/{msg.tracking_token}.gif")
+        assert response.status_code == 200
+        assert response["Content-Type"] == "image/gif"
+        msg.refresh_from_db()
+        assert msg.opened_at is not None
+        assert msg.open_count == 1
+
+    def test_second_open_increments_count_without_changing_opened_at(self, client, church):
+        msg = EmailMessage.objects.create(church=church, email="a@example.com", subject="x", body="y")
+        client.get(f"/mensagens/email/rastrear/{msg.tracking_token}.gif")
+        msg.refresh_from_db()
+        first_open = msg.opened_at
+
+        client.get(f"/mensagens/email/rastrear/{msg.tracking_token}.gif")
+        msg.refresh_from_db()
+        assert msg.open_count == 2
+        assert msg.opened_at == first_open
+
+    def test_unknown_token_still_returns_gif(self, client):
+        import uuid
+        response = client.get(f"/mensagens/email/rastrear/{uuid.uuid4()}.gif")
+        assert response.status_code == 200
+
+
+@pytest.mark.django_db
+class TestEmailClickTracking:
+    def test_redirects_to_real_destination_and_records_click(self, client, church):
+        msg = EmailMessage.objects.create(church=church, email="a@example.com", subject="x", body="y")
+        response = client.get(f"/mensagens/email/clique/{msg.tracking_token}/?url=https://exemplo.com/pagina")
+        assert response.status_code == 302
+        assert response.url == "https://exemplo.com/pagina"
+        msg.refresh_from_db()
+        assert msg.click_count == 1
+        assert msg.clicked_at is not None
+
+    def test_rejects_non_http_scheme(self, client, church):
+        msg = EmailMessage.objects.create(church=church, email="a@example.com", subject="x", body="y")
+        response = client.get(f"/mensagens/email/clique/{msg.tracking_token}/?url=javascript:alert(1)")
+        assert response.status_code == 302
+        assert "exemplo.com" not in response.url
+
+    def test_unknown_token_is_404(self, client):
+        import uuid
+        response = client.get(f"/mensagens/email/clique/{uuid.uuid4()}/?url=https://exemplo.com/")
+        assert response.status_code == 404
+
+
+@pytest.mark.django_db
+class TestEmailUnsubscribe:
+    def test_post_opts_out_the_linked_person(self, client, church, person):
+        msg = EmailMessage.objects.create(church=church, person=person, email="a@example.com", subject="x", body="y")
+        response = client.post(f"/mensagens/email/cancelar/{msg.tracking_token}/")
+        assert response.status_code == 200
+        person.refresh_from_db()
+        assert person.email_opted_out_at is not None
+
+    def test_opted_out_person_excluded_from_next_campaign(self, pastor_client, church, person):
+        person.email = "maria@example.com"
+        person.save()
+        from django.utils import timezone
+        person.email_opted_out_at = timezone.now()
+        person.save()
+
+        response = pastor_client.post("/pessoas/campanha/email/", {"subject": "x", "message": "y"})
+        assert response.status_code == 302
+        assert not EmailMessage.objects.filter(person=person).exists()
+
+    def test_get_shows_confirmation_without_opting_out_yet(self, client, church, person):
+        msg = EmailMessage.objects.create(church=church, person=person, email="a@example.com", subject="x", body="y")
+        client.get(f"/mensagens/email/cancelar/{msg.tracking_token}/")
+        person.refresh_from_db()
+        assert person.email_opted_out_at is None
+
+
+@pytest.mark.django_db
+class TestEmailCampanhaHelpers:
+    def test_linkify_wraps_urls_with_tracking_redirect(self):
+        from core.email_campaign import _linkify_com_rastreio
+
+        html = _linkify_com_rastreio(
+            "Veja aqui: https://exemplo.com/pagina?a=1&b=2 obrigado", "abc-token", "http://localhost:8000",
+        )
+        assert "/mensagens/email/clique/abc-token/?url=" in html
+        assert "<a href=" in html
+        assert "obrigado" in html
+
+    def test_send_includes_pixel_and_unsubscribe_link(self, church_config, mailoutbox, settings):
+        from core.email_campaign import enviar_email_campanha
+
+        settings.SITE_URL = "http://localhost:8000"
+        ok, error = enviar_email_campanha(
+            "a@example.com", "Assunto", "Corpo simples", church_config=church_config, tracking_token="tok-123",
+        )
+        assert ok is True
+        html_body = mailoutbox[0].alternatives[0][0]
+        assert "/mensagens/email/rastrear/tok-123.gif" in html_body
+        assert "/mensagens/email/cancelar/tok-123/" in html_body
+        assert mailoutbox[0].extra_headers.get("List-Unsubscribe")

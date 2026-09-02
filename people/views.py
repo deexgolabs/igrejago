@@ -683,17 +683,18 @@ class CampaignSendView(CanManagePeopleMixin, View):
 class EmailCampaignSendView(CanManagePeopleMixin, View):
     """Campanha de e-mail em massa — mesmo espírito de `CampaignSendView`
     (mesmo `_filter_people`, mesma fila-não-envio-direto), só trocando
-    WhatsApp por e-mail e excluindo quem não tem `email` cadastrado em
-    vez de `phone`."""
+    WhatsApp por e-mail e excluindo quem não tem `email` cadastrado (em
+    vez de `phone`) OU já se descadastrou (`email_opted_out_at`) — quem
+    clicou "cancelar inscrição" uma vez não entra em campanha nova."""
 
     template_name = "people/email_campaign_form.html"
 
     def get(self, request):
-        people = _filter_people(request.GET, request.user).exclude(email="")
+        people = _filter_people(request.GET, request.user).exclude(email="").filter(email_opted_out_at__isnull=True)
         return render(request, self.template_name, {"form": EmailCampaignForm(), "recipient_count": people.count()})
 
     def post(self, request):
-        people = _filter_people(request.GET, request.user).exclude(email="")
+        people = _filter_people(request.GET, request.user).exclude(email="").filter(email_opted_out_at__isnull=True)
         form = EmailCampaignForm(request.POST)
         if not form.is_valid():
             return render(request, self.template_name, {"form": form, "recipient_count": people.count()})

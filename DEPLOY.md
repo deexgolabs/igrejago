@@ -278,6 +278,14 @@ verificado ao vivo.
   workers/gunicorn cada um conta separado, então o limite real vira
   `limite × nº de workers` — troque por Redis (`django-redis` em
   `CACHES`) se isso importar no seu deploy.
+- **Deliverability de e-mail em massa (campanhas)**: o app já manda o
+  cabeçalho `List-Unsubscribe` (RFC 8058) e honra
+  `Person.email_opted_out_at` — mas isso NÃO substitui SPF/DKIM/DMARC
+  configurados no DNS do domínio de envio (`DEFAULT_FROM_EMAIL`). Sem
+  esses registros, provedores como Gmail marcam campanhas como spam
+  cedo ou tarde, independente de código — configure isso no provedor
+  SMTP que você usa (Gmail Workspace, SES, SendGrid etc.), fora do
+  escopo deste projeto (exige acesso ao DNS do domínio da igreja).
 
 ## 7. Depois de qualquer deploy novo
 
