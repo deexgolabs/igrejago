@@ -36,11 +36,11 @@
 <body class="bg-slate-50 text-slate-800">
 
 {% if user.is_authenticated %}
-<nav class="relative text-white" style="background:{{ paleta_marca.600 }}">
+<nav class="sticky top-0 z-20 text-white" style="background:{{ paleta_marca.600 }}">
     <div class="max-w-6xl mx-auto px-4 flex items-center justify-between h-14">
-        <a href="{% url 'core:dashboard' %}" class="font-bold text-white flex items-center gap-2">
-            {% if church_config.logo %}<img src="{{ church_config.logo.url }}" class="h-7 w-7 rounded object-cover bg-white/20">{% endif %}
-            {{ church_config.name|default:"Church CRM" }}
+        <a href="{% url 'core:dashboard' %}" class="font-bold text-white flex items-center gap-2 min-w-0">
+            {% if church_config.logo %}<img src="{{ church_config.logo.url }}" class="h-10 w-auto max-w-[180px] object-contain rounded bg-white/10 px-1.5 py-1">{% endif %}
+            <span class="truncate">{{ church_config.name|default:"Church CRM" }}</span>
         </a>
 
         <div class="hidden md:flex items-center gap-4 text-sm">

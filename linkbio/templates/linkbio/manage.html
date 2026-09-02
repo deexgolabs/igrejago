@@ -7,7 +7,7 @@
     <div class="bg-white border border-slate-200 rounded-xl p-6">
         <h2 class="text-sm font-semibold text-slate-700 mb-4">Página pública</h2>
         <p class="text-xs text-slate-400 mb-4">
-            URL pública: <a href="{% url 'linkbio_public:page' page.church.slug page.slug %}" target="_blank" class="text-brand-700 hover:underline">/{{ page.church.slug }}/links/{{ page.slug }}/</a>
+            URL pública: <a href="{{ page.public_url }}" target="_blank" class="text-brand-700 hover:underline">{{ page.public_url }}</a>
         </p>
         <form method="post" enctype="multipart/form-data" class="form-padrao space-y-3">
             {% csrf_token %}

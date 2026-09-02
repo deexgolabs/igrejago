@@ -33,7 +33,13 @@
         <tbody class="divide-y divide-slate-100">
             {% for custom_form in custom_forms %}
             <tr class="hover:bg-slate-50">
-                <td class="px-4 py-3 font-medium text-slate-800">{{ custom_form.title }}</td>
+                <td class="px-4 py-3 font-medium text-slate-800">
+                    {{ custom_form.title }}
+                    <a href="{{ custom_form.public_url }}" target="_blank" rel="noopener"
+                       class="block text-xs font-normal text-slate-400 hover:text-brand-700 hover:underline truncate max-w-xs">
+                        {{ custom_form.public_url }}
+                    </a>
+                </td>
                 <td class="px-4 py-3">
                     {% if custom_form.is_active %}
                     <span class="text-xs font-medium px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">Aceitando respostas</span>
@@ -48,7 +54,7 @@
                     </a>
                 </td>
                 <td class="px-4 py-3 text-right space-x-2">
-                    <a href="{{ custom_form.get_absolute_url }}" target="_blank" rel="noopener" class="text-slate-500 hover:text-brand-700">Ver público</a>
+                    <a href="{{ custom_form.public_url }}" target="_blank" rel="noopener" class="text-slate-500 hover:text-brand-700">Ver público</a>
                     <a href="{% url 'custom_forms:field_list' custom_form.pk %}" class="text-slate-500 hover:text-brand-700">Campos</a>
                     <a href="{% url 'custom_forms:update' custom_form.pk %}" class="text-slate-500 hover:text-brand-700">Editar</a>
                     <form method="post" action="{% url 'custom_forms:duplicate' custom_form.pk %}" class="inline">

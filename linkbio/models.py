@@ -1,4 +1,6 @@
+from django.conf import settings
 from django.db import models
+from django.urls import reverse
 
 from core.tenancy import TenantModel
 
@@ -27,6 +29,18 @@ class BioPage(TenantModel):
 
     def __str__(self):
         return self.church_name
+
+    def get_absolute_url(self):
+        return reverse("linkbio_public:page", args=[self.church.slug, self.slug])
+
+    @property
+    def public_url(self):
+        """URL pública completa mostrada em "Link na Bio" — com o domínio
+        espelho (`PUBLIC_LINK_DOMAIN`, ex.: igrejago.link) quando
+        configurado; em branco (dev, sem domínio espelho), continua só o
+        caminho relativo de sempre."""
+        path = self.get_absolute_url()
+        return f"{settings.PUBLIC_LINK_DOMAIN}{path}" if settings.PUBLIC_LINK_DOMAIN else path
 
 
 class Link(TenantModel):

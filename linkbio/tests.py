@@ -9,6 +9,17 @@ def bio_page(db, church):
 
 
 @pytest.mark.django_db
+class TestBioPagePublicUrl:
+    def test_relative_when_no_public_link_domain_configured(self, bio_page, settings):
+        settings.PUBLIC_LINK_DOMAIN = ""
+        assert bio_page.public_url == f"/{bio_page.church.slug}/links/links/"
+
+    def test_uses_public_link_domain_when_configured(self, bio_page, settings):
+        settings.PUBLIC_LINK_DOMAIN = "https://igrejago.link"
+        assert bio_page.public_url == f"https://igrejago.link/{bio_page.church.slug}/links/links/"
+
+
+@pytest.mark.django_db
 class TestPublicBioPage:
     def test_public_page_lists_only_active_links(self, client, bio_page):
         Link.objects.create(church=bio_page.church, page=bio_page, title="Ativo", url="https://a.com", order=1, is_active=True)

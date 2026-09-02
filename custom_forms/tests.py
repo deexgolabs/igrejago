@@ -11,6 +11,17 @@ def custom_form(db, church):
     return CustomForm.objects.create(church=church, title="Pedido de oração")
 
 
+@pytest.mark.django_db
+class TestCustomFormPublicUrl:
+    def test_relative_when_no_public_link_domain_configured(self, custom_form, settings):
+        settings.PUBLIC_LINK_DOMAIN = ""
+        assert custom_form.public_url == custom_form.get_absolute_url()
+
+    def test_uses_public_link_domain_when_configured(self, custom_form, settings):
+        settings.PUBLIC_LINK_DOMAIN = "https://igrejago.link"
+        assert custom_form.public_url == f"https://igrejago.link{custom_form.get_absolute_url()}"
+
+
 @pytest.fixture
 def name_field(custom_form):
     return FormField.objects.create(

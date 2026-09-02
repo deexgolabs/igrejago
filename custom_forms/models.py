@@ -89,6 +89,15 @@ class CustomForm(TenantModel):
         return reverse("custom_forms_public:public", args=[self.church.slug, self.slug])
 
     @property
+    def public_url(self):
+        """URL pública completa mostrada na lista de formulários — com o
+        domínio espelho (`PUBLIC_LINK_DOMAIN`, ex.: igrejago.link) quando
+        configurado; em branco (dev, sem domínio espelho), continua só o
+        caminho relativo de sempre (mesmo padrão de `linkbio.BioPage`)."""
+        path = self.get_absolute_url()
+        return f"{settings.PUBLIC_LINK_DOMAIN}{path}" if settings.PUBLIC_LINK_DOMAIN else path
+
+    @property
     def phone_field(self):
         return self.fields.filter(is_phone_field=True).first()
 

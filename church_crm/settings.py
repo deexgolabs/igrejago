@@ -37,6 +37,13 @@ CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.getenv("CSRF_TRUSTED_ORIGINS", "")
 # disponível) — sem barra no final.
 SITE_URL = os.getenv("SITE_URL", "http://localhost:8000")
 
+# Domínio curto/espelho (ex.: "https://igrejago.link") usado SÓ pra montar
+# a "URL pública" mostrada em Link na Bio e Formulários — as únicas rotas
+# que esse domínio espelho realmente atende (ver Worker do Cloudflare).
+# Em branco (padrão/dev): esses links continuam relativos, resolvidos
+# contra o domínio atual (comportamento de antes desta config existir).
+PUBLIC_LINK_DOMAIN = os.getenv("PUBLIC_LINK_DOMAIN", "").rstrip("/")
+
 
 # Application definition
 
