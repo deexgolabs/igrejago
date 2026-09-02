@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Livro razão{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-slate-900">Livro razão</h1>
+    <a href="{% url 'finance:conta_contabil_list' %}" class="text-sm text-slate-500 hover:text-slate-800">← Plano de contas</a>
+</div>
+<p class="text-xs text-slate-400 mb-4">Extrato de uma conta (Ativo/Passivo/Patrimônio líquido) — igual um extrato bancário.</p>
+
+<form method="get" class="mb-6 flex flex-wrap items-end gap-3">
+    <div>
+        <label class="block text-xs font-semibold text-slate-500 mb-1">Conta</label>
+        <select name="conta" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm">
+            <option value="">— escolha —</option>
+            {% for conta in contas %}
+            <option value="{{ conta.pk }}" {% if conta_selecionada.pk == conta.pk %}selected{% endif %}>{{ conta.code }} — {{ conta.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div>
+        <label class="block text-xs font-semibold text-slate-500 mb-1">De</label>
+        <input type="date" name="inicio" value="{{ inicio|date:'Y-m-d' }}" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm">
+    </div>
+    <div>
+        <label class="block text-xs font-semibold text-slate-500 mb-1">Até</label>
+        <input type="date" name="fim" value="{{ fim|date:'Y-m-d' }}" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm">
+    </div>
+    <button type="submit" class="bg-slate-800 hover:bg-slate-900 text-white text-sm rounded-lg px-4 py-1.5">Ver</button>
+    {% if conta_selecionada %}
+    <a href="?conta={{ conta_selecionada.pk }}&inicio={{ inicio|date:'Y-m-d' }}&fim={{ fim|date:'Y-m-d' }}&formato=pdf" class="text-sm border border-slate-300 rounded-lg px-4 py-1.5 hover:bg-slate-100">Baixar PDF</a>
+    {% endif %}
+</form>
+
+{% if conta_selecionada %}
+<p class="text-sm text-slate-600 mb-4">Saldo de abertura do período: <strong>R$ {{ dados.saldo_abertura }}</strong></p>
+
+<div class="bg-white border border-slate-200 rounded-xl overflow-x-auto mb-4">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr>
+                <th class="text-left px-4 py-3">Data</th>
+                <th class="text-left px-4 py-3">Descrição</th>
+                <th class="text-right px-4 py-3">Débito</th>
+                <th class="text-right px-4 py-3">Crédito</th>
+                <th class="text-right px-4 py-3">Saldo</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+            {% for linha in dados.linhas %}
+            <tr>
+                <td class="px-4 py-2 text-slate-700">{{ linha.data|date:"d/m/Y" }}</td>
+                <td class="px-4 py-2 text-slate-600">{{ linha.descricao }}</td>
+                <td class="px-4 py-2 text-right text-slate-600">{% if linha.debito %}R$ {{ linha.debito }}{% endif %}</td>
+                <td class="px-4 py-2 text-right text-slate-600">{% if linha.credito %}R$ {{ linha.credito }}{% endif %}</td>
+                <td class="px-4 py-2 text-right font-medium text-slate-800">R$ {{ linha.saldo }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">Sem movimentação no período.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="bg-white border border-slate-200 rounded-xl p-5">
+    <p class="text-sm text-slate-500">Saldo final</p>
+    <p class="text-2xl font-bold text-brand-700">R$ {{ dados.saldo_final }}</p>
+</div>
+{% endif %}
+{% endblock %}

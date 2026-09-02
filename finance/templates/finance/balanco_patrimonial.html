@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Balanço patrimonial{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-slate-900">Balanço patrimonial</h1>
+    <a href="{% url 'finance:conta_contabil_list' %}" class="text-sm text-slate-500 hover:text-slate-800">← Plano de contas</a>
+</div>
+<p class="text-xs text-slate-400 mb-4">
+    Só entra aqui quem foi lançado em partida dobrada (as duas contas preenchidas no lançamento — origem e
+    contrapartida). "Resultado acumulado" é a receita menos a despesa de tudo, somada automaticamente ao
+    Patrimônio líquido — sem isso a conta nunca fecharia.
+</p>
+
+<form method="get" class="mb-6 flex flex-wrap items-end gap-3">
+    <div>
+        <label class="block text-xs font-semibold text-slate-500 mb-1">Na data</label>
+        <input type="date" name="data" value="{{ data|date:'Y-m-d' }}" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm">
+    </div>
+    <button type="submit" class="bg-slate-800 hover:bg-slate-900 text-white text-sm rounded-lg px-4 py-1.5">Ver</button>
+    <a href="?data={{ data|date:'Y-m-d' }}&formato=pdf" class="text-sm border border-slate-300 rounded-lg px-4 py-1.5 hover:bg-slate-100">Baixar PDF</a>
+</form>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+    <div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+                <tr><th class="text-left px-4 py-3" colspan="2">Ativo</th></tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for conta, saldo in breakdown.ativo %}
+                <tr>
+                    <td class="px-4 py-2 text-slate-700">{{ conta.code }} — {{ conta.name }}</td>
+                    <td class="px-4 py-2 text-right text-slate-600">R$ {{ saldo }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="2" class="px-4 py-4 text-center text-slate-400">Nenhuma conta de Ativo.</td></tr>
+                {% endfor %}
+                <tr class="font-semibold bg-slate-50">
+                    <td class="px-4 py-2">Total do Ativo</td>
+                    <td class="px-4 py-2 text-right">R$ {{ breakdown.total_ativo }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="space-y-6">
+        <div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+                    <tr><th class="text-left px-4 py-3" colspan="2">Passivo</th></tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    {% for conta, saldo in breakdown.passivo %}
+                    <tr>
+                        <td class="px-4 py-2 text-slate-700">{{ conta.code }} — {{ conta.name }}</td>
+                        <td class="px-4 py-2 text-right text-slate-600">R$ {{ saldo }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="2" class="px-4 py-4 text-center text-slate-400">Nenhuma conta de Passivo.</td></tr>
+                    {% endfor %}
+                    <tr class="font-semibold bg-slate-50">
+                        <td class="px-4 py-2">Total do Passivo</td>
+                        <td class="px-4 py-2 text-right">R$ {{ breakdown.total_passivo }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+                    <tr><th class="text-left px-4 py-3" colspan="2">Patrimônio líquido</th></tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    {% for conta, saldo in breakdown.pl %}
+                    <tr>
+                        <td class="px-4 py-2 text-slate-700">{{ conta.code }} — {{ conta.name }}</td>
+                        <td class="px-4 py-2 text-right text-slate-600">R$ {{ saldo }}</td>
+                    </tr>
+                    {% endfor %}
+                    <tr>
+                        <td class="px-4 py-2 text-slate-700">Resultado acumulado</td>
+                        <td class="px-4 py-2 text-right text-slate-600">R$ {{ breakdown.resultado_acumulado }}</td>
+                    </tr>
+                    <tr>
+                        <td class="px-4 py-2 text-slate-700">Saldo inicial líquido (contas de abertura)</td>
+                        <td class="px-4 py-2 text-right text-slate-600">R$ {{ breakdown.saldo_inicial_liquido }}</td>
+                    </tr>
+                    <tr class="font-semibold bg-slate-50">
+                        <td class="px-4 py-2">Total do Patrimônio líquido</td>
+                        <td class="px-4 py-2 text-right">R$ {{ breakdown.total_pl }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="bg-white border border-slate-200 rounded-xl p-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
+    <div>
+        <p class="text-sm text-slate-500">Total do Ativo</p>
+        <p class="text-xl font-bold text-slate-900">R$ {{ breakdown.total_ativo }}</p>
+    </div>
+    <div>
+        <p class="text-sm text-slate-500">Total do Passivo + PL</p>
+        <p class="text-xl font-bold text-slate-900">R$ {{ breakdown.total_passivo_pl }}</p>
+    </div>
+    <div>
+        <p class="text-sm text-slate-500">Diferença</p>
+        <p class="text-xl font-bold {% if breakdown.diferenca == 0 %}text-emerald-600{% else %}text-red-600{% endif %}">R$ {{ breakdown.diferenca }}</p>
+        {% if breakdown.diferenca != 0 %}
+        <p class="text-xs text-red-500 mt-1">Deveria ser R$ 0,00 — provavelmente um lançamento antigo com só uma conta preenchida.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

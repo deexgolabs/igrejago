@@ -239,6 +239,109 @@ def generate_dre_contabil_pdf(church_config, inicio, fim):
     return buffer.getvalue()
 
 
+def generate_balanco_patrimonial_pdf(church_config, data):
+    """Balanço Patrimonial de verdade (Ativo × Passivo + PL), calculado
+    por débito/crédito de cada `ContaContabil` — ver docstring de
+    `finance/balanco.py` pro porquê do "Resultado acumulado" aparecer
+    dentro do PL."""
+    from finance.balanco import balanco_patrimonial
+
+    breakdown = balanco_patrimonial(church_config, data)
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=2 * cm, bottomMargin=2 * cm)
+    styles = getSampleStyleSheet()
+    story = []
+
+    story.append(Paragraph(church_config.name or "Church CRM", styles["Title"]))
+    story.append(Paragraph(f"Balanço Patrimonial — {data.strftime('%d/%m/%Y')}", styles["Heading2"]))
+    story.append(Spacer(1, 1 * cm))
+
+    story.append(Paragraph("Ativo", styles["Heading3"]))
+    rows = [[f"{c.code} — {c.name}", f"R$ {saldo:.2f}"] for c, saldo in breakdown["ativo"]] or [["—", "R$ 0,00"]]
+    rows.append(["Total do Ativo", f"R$ {breakdown['total_ativo']:.2f}"])
+    story.append(_styled_table(rows))
+    story.append(Spacer(1, 0.5 * cm))
+
+    story.append(Paragraph("Passivo", styles["Heading3"]))
+    rows = [[f"{c.code} — {c.name}", f"R$ {saldo:.2f}"] for c, saldo in breakdown["passivo"]] or [["—", "R$ 0,00"]]
+    rows.append(["Total do Passivo", f"R$ {breakdown['total_passivo']:.2f}"])
+    story.append(_styled_table(rows))
+    story.append(Spacer(1, 0.5 * cm))
+
+    story.append(Paragraph("Patrimônio líquido", styles["Heading3"]))
+    rows = [[f"{c.code} — {c.name}", f"R$ {saldo:.2f}"] for c, saldo in breakdown["pl"]]
+    rows.append(["Resultado acumulado (receita − despesa)", f"R$ {breakdown['resultado_acumulado']:.2f}"])
+    rows.append(["Saldo inicial líquido (contas de abertura)", f"R$ {breakdown['saldo_inicial_liquido']:.2f}"])
+    rows.append(["Total do Patrimônio líquido", f"R$ {breakdown['total_pl']:.2f}"])
+    story.append(_styled_table(rows))
+    story.append(Spacer(1, 1 * cm))
+
+    story.append(_styled_table([
+        ["Total do Ativo", f"R$ {breakdown['total_ativo']:.2f}"],
+        ["Total do Passivo + PL", f"R$ {breakdown['total_passivo_pl']:.2f}"],
+        ["Diferença", f"R$ {breakdown['diferenca']:.2f}"],
+    ]))
+    story.append(Spacer(1, 1 * cm))
+    story.append(Paragraph(
+        f"Gerado em {date.today().strftime('%d/%m/%Y')} — Resultado acumulado somado ao Patrimônio "
+        "líquido automaticamente (sem exigir lançamento manual de encerramento de período); "
+        "diferença deveria ser sempre R$ 0,00 — se não for, há lançamento antigo com só um lado "
+        "preenchido (editado fora do formulário padrão).",
+        styles["Normal"],
+    ))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def generate_livro_razao_pdf(church_config, conta, inicio, fim):
+    """Extrato (livro razão) de UMA conta contábil — ver
+    `finance.balanco.livro_razao`."""
+    from finance.balanco import livro_razao
+
+    dados = livro_razao(conta, inicio, fim)
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=2 * cm, bottomMargin=2 * cm)
+    styles = getSampleStyleSheet()
+    story = []
+
+    story.append(Paragraph(church_config.name or "Church CRM", styles["Title"]))
+    story.append(Paragraph(
+        f"Livro razão — {conta.code} — {conta.name} — {inicio.strftime('%d/%m/%Y')} a {fim.strftime('%d/%m/%Y')}",
+        styles["Heading2"],
+    ))
+    story.append(Spacer(1, 0.5 * cm))
+    story.append(Paragraph(f"Saldo de abertura: R$ {dados['saldo_abertura']:.2f}", styles["Normal"]))
+    story.append(Spacer(1, 0.6 * cm))
+
+    rows = [["Data", "Descrição", "Débito", "Crédito", "Saldo"]]
+    for linha in dados["linhas"]:
+        rows.append([
+            linha["data"].strftime("%d/%m/%Y"), linha["descricao"],
+            f"R$ {linha['debito']:.2f}" if linha["debito"] else "",
+            f"R$ {linha['credito']:.2f}" if linha["credito"] else "",
+            f"R$ {linha['saldo']:.2f}",
+        ])
+    table = Table(rows)
+    table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f8fafc")),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.append(table)
+    story.append(Spacer(1, 1 * cm))
+    story.append(Paragraph(f"Saldo final: R$ {dados['saldo_final']:.2f}", styles["Heading3"]))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
 def generate_balancete_pdf(church_config, inicio, fim):
     """"Balancete" simplificado — saldo acumulado mês a mês (ver
     `finance.dre.saldo_acumulado` pro porquê de não ser um balanço

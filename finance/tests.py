@@ -461,16 +461,21 @@ class TestContaContabil:
         assert member_client.get("/financeiro/plano-de-contas/").status_code == 403
 
     def test_transaction_can_be_linked_to_account(self, pastor_client, church):
+        """Desde a partida dobrada (ver TestTransactionDoubleEntryValidation),
+        vincular a UMA conta exige a contrapartida também — só uma das
+        duas agora é rejeitado pelo form."""
         from finance.models import ContaContabil, Transaction
 
         conta = ContaContabil.objects.create(church=church, code="3.1.01", name="Dízimos", tipo="RECEITA")
+        caixa = ContaContabil.objects.create(church=church, code="1.1.01", name="Caixa", tipo="ATIVO")
         response = pastor_client.post("/financeiro/novo/", {
             "type": "INCOME", "category": "TITHE", "amount": "150.00", "date": "2026-03-10",
-            "conta_contabil": conta.pk,
+            "conta_contabil": conta.pk, "conta_contrapartida": caixa.pk,
         })
         assert response.status_code == 302
         transaction = Transaction.objects.get()
         assert transaction.conta_contabil_id == conta.pk
+        assert transaction.conta_contrapartida_id == caixa.pk
 
     def test_transaction_without_account_still_works(self, pastor_client, church):
         """`conta_contabil` é opcional — quem não monta plano de contas
@@ -534,3 +539,160 @@ class TestContabilExport:
 
     def test_member_cannot_export(self, member_client):
         assert member_client.get("/financeiro/exportar/contabil/").status_code == 403
+
+
+@pytest.mark.django_db
+class TestTransactionDoubleEntryValidation:
+    def test_only_one_account_filled_is_rejected(self, pastor_client, church):
+        from finance.models import ContaContabil
+
+        conta = ContaContabil.objects.create(church=church, code="1.1.01", name="Caixa", tipo="ATIVO")
+        response = pastor_client.post("/financeiro/novo/", {
+            "type": "INCOME", "category": "TITHE", "amount": "100.00", "date": "2026-03-10",
+            "conta_contabil": conta.pk,
+        })
+        assert response.status_code == 200  # re-renderiza com erro
+        assert not Transaction.objects.exists()
+
+    def test_same_account_on_both_sides_is_rejected(self, pastor_client, church):
+        from finance.models import ContaContabil
+
+        conta = ContaContabil.objects.create(church=church, code="1.1.01", name="Caixa", tipo="ATIVO")
+        response = pastor_client.post("/financeiro/novo/", {
+            "type": "INCOME", "category": "TITHE", "amount": "100.00", "date": "2026-03-10",
+            "conta_contabil": conta.pk, "conta_contrapartida": conta.pk,
+        })
+        assert response.status_code == 200
+        assert not Transaction.objects.exists()
+
+    def test_both_accounts_filled_succeeds(self, pastor_client, church):
+        from finance.models import ContaContabil
+
+        receita = ContaContabil.objects.create(church=church, code="3.1", name="Dízimos", tipo="RECEITA")
+        caixa = ContaContabil.objects.create(church=church, code="1.1", name="Caixa", tipo="ATIVO")
+        response = pastor_client.post("/financeiro/novo/", {
+            "type": "INCOME", "category": "TITHE", "amount": "100.00", "date": "2026-03-10",
+            "conta_contabil": receita.pk, "conta_contrapartida": caixa.pk,
+        })
+        assert response.status_code == 302
+        t = Transaction.objects.get()
+        assert t.conta_contabil_id == receita.pk
+        assert t.conta_contrapartida_id == caixa.pk
+
+    def test_neither_account_filled_still_works(self, pastor_client, church):
+        """Lançamento simples de sempre, sem nenhuma conta — continua
+        funcionando igual antes desta feature."""
+        response = pastor_client.post("/financeiro/novo/", {
+            "type": "INCOME", "category": "TITHE", "amount": "50.00", "date": "2026-03-10",
+        })
+        assert response.status_code == 302
+
+
+@pytest.mark.django_db
+class TestSaldoDaConta:
+    def test_opening_balance_plus_debit_minus_credit_for_ativo(self, church):
+        from finance.balanco import saldo_da_conta
+        from finance.models import ContaContabil
+
+        caixa = ContaContabil.objects.create(church=church, code="1.1", name="Caixa", tipo="ATIVO", saldo_inicial=500)
+        receita = ContaContabil.objects.create(church=church, code="3.1", name="Dízimos", tipo="RECEITA")
+        despesa = ContaContabil.objects.create(church=church, code="4.1", name="Aluguel", tipo="DESPESA")
+
+        # Entrada: credita receita, debita caixa (dinheiro ENTRA no caixa).
+        Transaction.objects.create(
+            church=church, type="INCOME", category="TITHE", amount=200, date=date(2026, 3, 10),
+            conta_contabil=receita, conta_contrapartida=caixa,
+        )
+        # Saída: debita despesa, credita caixa (dinheiro SAI do caixa).
+        Transaction.objects.create(
+            church=church, type="EXPENSE", category="RENT", amount=80, date=date(2026, 3, 12),
+            conta_contabil=despesa, conta_contrapartida=caixa,
+        )
+
+        assert saldo_da_conta(caixa, date(2026, 3, 31)) == 620  # 500 + 200 - 80
+        assert saldo_da_conta(receita, date(2026, 3, 31)) == 200
+        assert saldo_da_conta(despesa, date(2026, 3, 31)) == 80
+
+    def test_ignores_transactions_after_the_cutoff_date(self, church):
+        from finance.balanco import saldo_da_conta
+        from finance.models import ContaContabil
+
+        caixa = ContaContabil.objects.create(church=church, code="1.1", name="Caixa", tipo="ATIVO")
+        receita = ContaContabil.objects.create(church=church, code="3.1", name="Dízimos", tipo="RECEITA")
+        Transaction.objects.create(
+            church=church, type="INCOME", category="TITHE", amount=999, date=date(2026, 4, 1),
+            conta_contabil=receita, conta_contrapartida=caixa,
+        )
+        assert saldo_da_conta(caixa, date(2026, 3, 31)) == 0
+
+
+@pytest.mark.django_db
+class TestBalancoPatrimonial:
+    def test_ativo_equals_passivo_plus_pl(self, church):
+        from finance.balanco import balanco_patrimonial
+        from finance.models import ContaContabil
+
+        caixa = ContaContabil.objects.create(church=church, code="1.1", name="Caixa", tipo="ATIVO", saldo_inicial=500)
+        receita = ContaContabil.objects.create(church=church, code="3.1", name="Dízimos", tipo="RECEITA")
+        despesa = ContaContabil.objects.create(church=church, code="4.1", name="Aluguel", tipo="DESPESA")
+
+        Transaction.objects.create(
+            church=church, type="INCOME", category="TITHE", amount=200, date=date(2026, 3, 10),
+            conta_contabil=receita, conta_contrapartida=caixa,
+        )
+        Transaction.objects.create(
+            church=church, type="EXPENSE", category="RENT", amount=80, date=date(2026, 3, 12),
+            conta_contabil=despesa, conta_contrapartida=caixa,
+        )
+
+        breakdown = balanco_patrimonial(church, date(2026, 3, 31))
+        assert breakdown["total_ativo"] == 620
+        assert breakdown["resultado_acumulado"] == 120
+        assert breakdown["saldo_inicial_liquido"] == 500  # Caixa tinha R$500 antes de qualquer lançamento
+        assert breakdown["total_passivo_pl"] == 620
+        assert breakdown["diferenca"] == 0
+
+    def test_pastor_can_view_pdf(self, pastor_client, church):
+        response = pastor_client.get("/financeiro/balanco-patrimonial/?formato=pdf")
+        assert response.status_code == 200
+        assert response["Content-Type"] == "application/pdf"
+
+    def test_member_cannot_view(self, member_client):
+        assert member_client.get("/financeiro/balanco-patrimonial/").status_code == 403
+
+
+@pytest.mark.django_db
+class TestLivroRazao:
+    def test_running_balance_per_line(self, church):
+        from finance.balanco import livro_razao
+        from finance.models import ContaContabil
+
+        caixa = ContaContabil.objects.create(church=church, code="1.1", name="Caixa", tipo="ATIVO", saldo_inicial=500)
+        receita = ContaContabil.objects.create(church=church, code="3.1", name="Dízimos", tipo="RECEITA")
+        despesa = ContaContabil.objects.create(church=church, code="4.1", name="Aluguel", tipo="DESPESA")
+
+        Transaction.objects.create(
+            church=church, type="INCOME", category="TITHE", amount=200, date=date(2026, 3, 10),
+            conta_contabil=receita, conta_contrapartida=caixa,
+        )
+        Transaction.objects.create(
+            church=church, type="EXPENSE", category="RENT", amount=80, date=date(2026, 3, 12),
+            conta_contabil=despesa, conta_contrapartida=caixa,
+        )
+
+        dados = livro_razao(caixa, date(2026, 3, 1), date(2026, 3, 31))
+        assert dados["saldo_abertura"] == 500
+        assert len(dados["linhas"]) == 2
+        assert dados["linhas"][0]["saldo"] == 700
+        assert dados["linhas"][1]["saldo"] == 620
+        assert dados["saldo_final"] == 620
+
+    def test_pastor_can_view_with_account_selected(self, pastor_client, church):
+        from finance.models import ContaContabil
+
+        caixa = ContaContabil.objects.create(church=church, code="1.1", name="Caixa", tipo="ATIVO")
+        response = pastor_client.get(f"/financeiro/livro-razao/?conta={caixa.pk}")
+        assert response.status_code == 200
+
+    def test_member_cannot_view(self, member_client):
+        assert member_client.get("/financeiro/livro-razao/").status_code == 403

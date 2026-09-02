@@ -11,7 +11,10 @@ DATE_INPUT = forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d")
 class TransactionForm(forms.ModelForm):
     class Meta:
         model = Transaction
-        fields = ["type", "category", "amount", "date", "description", "person", "payment_method", "conta_contabil"]
+        fields = [
+            "type", "category", "amount", "date", "description", "person", "payment_method",
+            "conta_contabil", "conta_contrapartida",
+        ]
         widgets = {"date": DATE_INPUT, "description": forms.TextInput()}
 
     def __init__(self, *args, **kwargs):
@@ -24,14 +27,33 @@ class TransactionForm(forms.ModelForm):
         # vazar registro de outras igrejas (fixado na classe do form, sem
         # igreja nenhuma no thread-local ainda).
         self.fields["person"].queryset = Person.objects.all()
-        self.fields["conta_contabil"].queryset = ContaContabil.objects.filter(is_active=True)
+        contas_ativas = ContaContabil.objects.filter(is_active=True)
+        self.fields["conta_contabil"].queryset = contas_ativas
         self.fields["conta_contabil"].required = False
+        self.fields["conta_contrapartida"].queryset = contas_ativas
+        self.fields["conta_contrapartida"].required = False
+
+    def clean(self):
+        cleaned_data = super().clean()
+        conta = cleaned_data.get("conta_contabil")
+        contrapartida = cleaned_data.get("conta_contrapartida")
+        # Partida dobrada é tudo ou nada: com só um lado preenchido, o
+        # balanço patrimonial fecharia torto (Ativo ≠ Passivo + PL) sem
+        # nenhum aviso — melhor barrar aqui do que deixar silencioso.
+        if bool(conta) != bool(contrapartida):
+            raise forms.ValidationError(
+                "Pra registrar em partida dobrada, informe as duas contas (a de origem e a de "
+                "contrapartida) — ou deixe as duas em branco pra um lançamento simples."
+            )
+        if conta and contrapartida and conta == contrapartida:
+            raise forms.ValidationError("A conta e a contrapartida não podem ser a mesma.")
+        return cleaned_data
 
 
 class ContaContabilForm(forms.ModelForm):
     class Meta:
         model = ContaContabil
-        fields = ["code", "name", "tipo", "parent", "is_active"]
+        fields = ["code", "name", "tipo", "parent", "is_active", "saldo_inicial"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

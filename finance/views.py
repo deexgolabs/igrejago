@@ -22,12 +22,15 @@ from core.tenancy import TenantFormMixin
 from core.reports import (
     generate_annual_donation_receipt_pdf,
     generate_balancete_pdf,
+    generate_balanco_patrimonial_pdf,
     generate_donation_receipt_pdf,
     generate_dre_contabil_pdf,
     generate_dre_pdf,
+    generate_livro_razao_pdf,
 )
 from events.pix import build_pix_payload
 from finance import mercadopago
+from finance.balanco import balanco_patrimonial, livro_razao
 from finance.dre import dre_breakdown, dre_por_conta_contabil, saldo_acumulado
 from finance.forms import (
     ContaContabilForm,
@@ -828,3 +831,57 @@ class ContabilExportView(IsChurchManagerMixin, View):
                 t.conta_contabil.get_tipo_display(), dc, t.description, t.amount,
             ])
         return response
+
+
+class BalancoPatrimonialView(IsChurchManagerMixin, View):
+    """Balanço Patrimonial de verdade (Ativo × Passivo + PL) — só faz
+    sentido pra quem já lança em partida dobrada (as duas contas
+    preenchidas, ver `TransactionForm.clean()`); tela + PDF, mesmo par
+    de sempre."""
+
+    template_name = "finance/balanco_patrimonial.html"
+
+    def get(self, request):
+        try:
+            data = date.fromisoformat(request.GET["data"]) if request.GET.get("data") else date.today()
+        except ValueError:
+            data = date.today()
+
+        if request.GET.get("formato") == "pdf":
+            pdf_bytes = generate_balanco_patrimonial_pdf(request.church, data)
+            response = HttpResponse(pdf_bytes, content_type="application/pdf")
+            response["Content-Disposition"] = f'attachment; filename="balanco-patrimonial-{data}.pdf"'
+            response["Cache-Control"] = "private, no-store"
+            return response
+        breakdown = balanco_patrimonial(request.church, data)
+        return render(request, self.template_name, {"breakdown": breakdown, "data": data})
+
+
+class LivroRazaoView(IsChurchManagerMixin, View):
+    """Extrato de UMA conta (débito/crédito/saldo corrente) — precisa
+    de `?conta=<id>`; sem isso, só mostra o seletor de conta."""
+
+    template_name = "finance/livro_razao.html"
+
+    def get(self, request):
+        contas = ContaContabil.objects.filter(
+            is_active=True, tipo__in=[ContaContabil.Tipo.ATIVO, ContaContabil.Tipo.PASSIVO, ContaContabil.Tipo.PATRIMONIO_LIQUIDO],
+        ).order_by("code")
+        inicio, fim = _periodo_do_get(request)
+
+        conta_id = request.GET.get("conta")
+        if not conta_id:
+            return render(request, self.template_name, {"contas": contas, "inicio": inicio, "fim": fim})
+
+        conta = get_object_or_404(ContaContabil, pk=conta_id)
+        if request.GET.get("formato") == "pdf":
+            pdf_bytes = generate_livro_razao_pdf(request.church, conta, inicio, fim)
+            response = HttpResponse(pdf_bytes, content_type="application/pdf")
+            response["Content-Disposition"] = f'attachment; filename="livro-razao-{conta.code}-{inicio}-a-{fim}.pdf"'
+            response["Cache-Control"] = "private, no-store"
+            return response
+
+        dados = livro_razao(conta, inicio, fim)
+        return render(request, self.template_name, {
+            "contas": contas, "conta_selecionada": conta, "dados": dados, "inicio": inicio, "fim": fim,
+        })

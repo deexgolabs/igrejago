@@ -31,6 +31,11 @@ class ContaContabil(TenantModel):
         related_name="children", verbose_name="Conta superior",
     )
     is_active = models.BooleanField("Ativa", default=True)
+    saldo_inicial = models.DecimalField(
+        "Saldo de abertura (R$)", max_digits=12, decimal_places=2, default=0, blank=True,
+        help_text="Quanto essa conta já tinha antes de você começar a registrar por aqui — "
+                   "só relevante pra contas de Ativo/Passivo/Patrimônio líquido (ex.: saldo do caixa/banco).",
+    )
 
     class Meta:
         verbose_name = "Conta contábil"
@@ -91,6 +96,13 @@ class Transaction(TenantModel):
         ContaContabil, on_delete=models.SET_NULL, null=True, blank=True,
         related_name="transactions", verbose_name="Conta contábil",
         help_text="Opcional — só pra quem já montou um plano de contas (Financeiro → Plano de contas).",
+    )
+    conta_contrapartida = models.ForeignKey(
+        ContaContabil, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="transactions_contrapartida", verbose_name="Conta de contrapartida",
+        help_text="O outro lado do lançamento (ex.: de onde saiu/pra onde foi o dinheiro — Caixa, Banco) — "
+                   "preenchendo as duas contas, o lançamento vira partida dobrada de verdade "
+                   "(ver Financeiro → Balanço patrimonial).",
     )
 
     created_by = models.ForeignKey(
