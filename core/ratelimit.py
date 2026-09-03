@@ -27,6 +27,23 @@ class RateLimitMixin:
     rate_limit_methods = ("POST",)
 
     def _rate_limit_identity(self, request):
+        # Achado numa revisão de segurança: atrás de um proxy reverso
+        # (Nginx/Cloudflare na frente, topologia já usada em produção —
+        # ver DEPLOY.md), `REMOTE_ADDR` é sempre o IP do proxy, não do
+        # visitante — TODO MUNDO cai no mesmo contador, e um único
+        # abusador esgota o limite pra todos os usuários legítimos.
+        # `X-Forwarded-For` é uma lista "cliente, proxy1, proxy2, ..."
+        # (RFC 7239-ish); o ÚLTIMO valor é o que o proxy mais próximo do
+        # Django adicionou de verdade — presume um único hop de proxy
+        # confiável na frente (a topologia simples deste projeto), não
+        # tenta resolver múltiplos proxies encadeados nem validar que o
+        # cabeçalho não foi adulterado por quem conecta direto sem
+        # passar pelo proxy.
+        forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
+        if forwarded:
+            partes = [ip.strip() for ip in forwarded.split(",") if ip.strip()]
+            if partes:
+                return partes[-1]
         return request.META.get("REMOTE_ADDR", "unknown")
 
     def dispatch(self, request, *args, **kwargs):

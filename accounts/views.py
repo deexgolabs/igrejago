@@ -74,6 +74,27 @@ class TOTPVerifyView(RateLimitMixin, View):
         return render(request, self.template_name)
 
 
+class RateLimitedPasswordResetView(RateLimitMixin, auth_views.PasswordResetView):
+    """Achado numa revisão de segurança: o reset de senha (Django
+    padrão) não tinha rate limit nenhum — dava pra disparar e-mail de
+    reset em volume ilimitado pra qualquer endereço (spam/abuso de
+    entrega). Mesmo padrão de `RateLimitedLoginView`."""
+
+    rate_limit_key = "password_reset"
+    rate_limit_max = 5
+    rate_limit_window_seconds = 300
+
+
+class RateLimitedPasswordResetConfirmView(RateLimitMixin, auth_views.PasswordResetConfirmView):
+    """Mesmo motivo — sem limite, dava pra tentar volume grande de
+    request contra a URL de confirmação sem freio nenhum (mitigado
+    pela entropia do token, mas sem defesa em profundidade)."""
+
+    rate_limit_key = "password_reset_confirm"
+    rate_limit_max = 10
+    rate_limit_window_seconds = 300
+
+
 class TOTPStatusView(LoginRequiredMixin, View):
     """Tela "Segurança" — mostra se a conta tem 2FA ativado e dá acesso a
     configurar ou desativar."""
@@ -85,14 +106,19 @@ class TOTPStatusView(LoginRequiredMixin, View):
         return render(request, self.template_name, {"device": device})
 
 
-class TOTPSetupView(LoginRequiredMixin, View):
+class TOTPSetupView(RateLimitMixin, LoginRequiredMixin, View):
     """Gera (ou reaproveita) um segredo pendente e mostra o QR code pra
     escanear; só vira "ativo" (`confirmed=True`) depois de digitar um
     código válido de volta, provando que o app autenticador está mesmo
     configurado certo — sem isso, alguém poderia acidentalmente se trancar
-    fora da própria conta com um segredo que nunca funcionou."""
+    fora da própria conta com um segredo que nunca funcionou. Rate limit
+    (achado numa revisão de segurança): sem isso, dava pra tentar códigos
+    de 6 dígitos contra o segredo pendente sem limite nenhum."""
 
     template_name = "accounts/totp_setup.html"
+    rate_limit_key = "totp_setup"
+    rate_limit_max = 10
+    rate_limit_window_seconds = 300
 
     def get(self, request):
         device, _ = TOTPDevice.objects.get_or_create(
@@ -119,8 +145,21 @@ class TOTPSetupView(LoginRequiredMixin, View):
         return {"secret": device.secret, "qr_data_uri": qr_data_uri(uri)}
 
 
-class TOTPDisableView(LoginRequiredMixin, View):
+class TOTPDisableView(RateLimitMixin, LoginRequiredMixin, View):
+    """Exige a SENHA atual antes de desativar — achado numa revisão de
+    segurança: antes, um único POST autenticado já desligava o 2FA sem
+    nenhuma reconfirmação, então uma sessão sequestrada (XSS, cookie
+    roubado, dispositivo compartilhado) conseguia remover essa camada
+    permanentemente sem saber a senha nem um código válido."""
+
+    rate_limit_key = "totp_disable"
+    rate_limit_max = 10
+    rate_limit_window_seconds = 300
+
     def post(self, request):
+        if not request.user.check_password(request.POST.get("password", "")):
+            messages.error(request, "Senha incorreta — 2FA continua ativado.")
+            return redirect("accounts:totp_status")
         TOTPDevice.objects.filter(user=request.user).delete()
         messages.success(request, "Autenticação em duas etapas desativada.")
         return redirect("accounts:totp_status")

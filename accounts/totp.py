@@ -45,9 +45,15 @@ def verify_totp(secret, code):
     exatamente com o do servidor."""
     if not code or not code.strip().isdigit():
         return False
-    code = code.strip()
+    code = code.strip().encode()
     counter_now = int(time.time() // _STEP_SECONDS)
-    return any(_hotp(secret, counter_now + offset) == code for offset in range(-_WINDOW, _WINDOW + 1))
+    # `compare_digest` (achado numa revisão de segurança) em vez de
+    # `==` — comparação em tempo constante, contra timing attack pra
+    # descobrir o código válido caractere a caractere.
+    return any(
+        hmac.compare_digest(_hotp(secret, counter_now + offset).encode(), code)
+        for offset in range(-_WINDOW, _WINDOW + 1)
+    )
 
 
 def otpauth_uri(*, secret, username, issuer="Church CRM"):

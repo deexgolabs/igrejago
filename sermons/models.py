@@ -1,6 +1,7 @@
 from django.db import models
 
 from core.tenancy import TenantModel
+from core.uploads import random_upload_to
 
 
 class Sermon(TenantModel):
@@ -20,7 +21,7 @@ class Sermon(TenantModel):
     )
     description = models.TextField("Descrição", blank=True)
     audio_file = models.FileField(
-        "Arquivo de áudio", upload_to="sermons/audio/%Y/%m/", blank=True,
+        "Arquivo de áudio", upload_to=random_upload_to("sermons/audio"), blank=True,
         help_text="MP3/M4A — tocado direto na página pública.",
     )
     youtube_url = models.URLField("Link do YouTube", blank=True)

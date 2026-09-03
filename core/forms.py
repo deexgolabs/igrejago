@@ -35,6 +35,14 @@ class ChurchConfigForm(forms.ModelForm):
             "whatsapp_birthday_template": forms.Textarea(attrs={"rows": 3}),
             "whatsapp_escala_template": forms.Textarea(attrs={"rows": 3}),
             "ia_knowledge_base": forms.Textarea(attrs={"rows": 6}),
+            # `render_value=False` — achado numa revisão de segurança: o
+            # valor da credencial vinha embutido em claro no HTML
+            # renderizado (visível por "Ver código-fonte", cache de
+            # proxy, HAR de debug). Campo em branco no POST não apaga o
+            # valor salvo — ver `SettingsView.form_valid`.
+            "mercadopago_access_token": forms.PasswordInput(render_value=False, attrs={"autocomplete": "off"}),
+            "pagbank_token": forms.PasswordInput(render_value=False, attrs={"autocomplete": "off"}),
+            "ia_api_key": forms.PasswordInput(render_value=False, attrs={"autocomplete": "off"}),
         }
 
 

@@ -455,6 +455,140 @@ class TestSettingsView:
         assert not hasattr(church_config, "whatsapp_api_url")
         assert not hasattr(church_config, "whatsapp_instance")
 
+    def test_blank_credential_field_does_not_erase_existing_value(self, pastor_client, church_config):
+        # Achado numa revisão de segurança: os campos de credencial
+        # viraram PasswordInput(render_value=False) — chegam sempre em
+        # branco no POST a menos que troquem o valor. Sem o tratamento
+        # em SettingsView.post, salvar essa tela sem mexer na chave
+        # apagaria ela.
+        church_config.mercadopago_access_token = "token-existente"
+        church_config.save()
+        response = pastor_client.post("/configuracoes/", {
+            "name": "Igreja Nova", "pastor_name": "", "brand_color": "#2563eb",
+            "whatsapp_absence_template": "Oi {nome}", "whatsapp_birthday_template": "Niver {nome}",
+            "whatsapp_escala_template": "Escalado {nome} em {departamento}{funcao}{horario}. {link}",
+            "whatsapp_send_interval_seconds": "6", "whatsapp_batch_size": "30", "whatsapp_max_retries": "3",
+            "pix_key_type": "",
+        })
+        assert response.status_code == 302
+        church_config.refresh_from_db()
+        assert church_config.mercadopago_access_token == "token-existente"
+
+    def test_credential_field_with_new_value_updates(self, pastor_client, church_config):
+        church_config.mercadopago_access_token = "token-antigo"
+        church_config.save()
+        response = pastor_client.post("/configuracoes/", {
+            "name": "Igreja Nova", "pastor_name": "", "brand_color": "#2563eb",
+            "whatsapp_absence_template": "Oi {nome}", "whatsapp_birthday_template": "Niver {nome}",
+            "whatsapp_escala_template": "Escalado {nome} em {departamento}{funcao}{horario}. {link}",
+            "whatsapp_send_interval_seconds": "6", "whatsapp_batch_size": "30", "whatsapp_max_retries": "3",
+            "pix_key_type": "", "mercadopago_access_token": "token-novo",
+        })
+        assert response.status_code == 302
+        church_config.refresh_from_db()
+        assert church_config.mercadopago_access_token == "token-novo"
+
+
+@pytest.mark.django_db
+class TestUploadSecurity:
+    """Achados numa revisão de segurança — upload público sem validação
+    (`core.uploads.validar_upload`) e nome de arquivo previsível
+    (`core.uploads.random_upload_to`)."""
+
+    def test_validar_upload_rejects_disallowed_extension(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        from core.uploads import validar_upload
+
+        ok, motivo = validar_upload(SimpleUploadedFile("script.html", b"<script></script>"))
+        assert ok is False
+        assert "não permitido" in motivo
+
+    def test_validar_upload_rejects_oversized_file(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        from core.uploads import validar_upload
+
+        ok, motivo = validar_upload(SimpleUploadedFile("grande.pdf", b"x" * (11 * 1024 * 1024)))
+        assert ok is False
+        assert "10MB" in motivo
+
+    def test_validar_upload_accepts_allowed_type_within_limit(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        from core.uploads import validar_upload
+
+        ok, motivo = validar_upload(SimpleUploadedFile("comprovante.pdf", b"conteudo"))
+        assert ok is True
+        assert motivo == ""
+
+    def test_random_upload_to_generates_unpredictable_name(self):
+        from core.uploads import random_upload_to
+
+        upload_to = random_upload_to("people/photos")
+        gerado1 = upload_to(None, "nome-original.jpg")
+        gerado2 = upload_to(None, "nome-original.jpg")
+        assert gerado1 != gerado2  # dois uploads do mesmo arquivo nunca colidem
+        assert "nome-original" not in gerado1
+        assert gerado1.startswith("people/photos/")
+        assert gerado1.endswith(".jpg")
+
+    def test_random_upload_to_is_deconstructible_for_migrations(self):
+        # Sem isso, `makemigrations` falha com "Could not find function"
+        # — closure comum não é serializável, precisa da classe
+        # `@deconstructible`.
+        from core.uploads import random_upload_to
+
+        upload_to = random_upload_to("core")
+        path, args, kwargs = upload_to.deconstruct()
+        assert list(args) == ["core"]
+
+
+@pytest.mark.django_db
+class TestJsonParaScript:
+    """Achado numa revisão de segurança: `json.dumps` embutido direto
+    num `<script>` via `|safe` não escapa `</script>` — um nome de
+    departamento malicioso quebrava pra fora da tag."""
+
+    def test_escapes_script_closing_tag(self):
+        from core.utils import json_para_script
+
+        resultado = json_para_script([{"label": "</script><script>alert(1)</script>", "total": 1}])
+        assert "</script>" not in resultado
+        assert "\\u003c/script\\u003e" in resultado
+
+    def test_still_valid_json_after_round_trip(self):
+        import json
+
+        from core.utils import json_para_script
+
+        original = [{"label": "Infantil", "total": 5}]
+        resultado = json_para_script(original)
+        # O JS decodifica \uXXXX sozinho; simulando isso aqui só pra
+        # confirmar que não corrompeu dado normal, sem caracteres
+        # perigosos.
+        assert json.loads(resultado) == original
+
+
+class TestRateLimitProxyHeader:
+    """Achado numa revisão de segurança: atrás de proxy reverso,
+    `REMOTE_ADDR` é sempre o IP do proxy — todo mundo dividia o mesmo
+    contador de rate limit."""
+
+    def test_uses_last_x_forwarded_for_value(self, rf):
+        from core.ratelimit import RateLimitMixin
+
+        mixin = RateLimitMixin()
+        request = rf.post("/", HTTP_X_FORWARDED_FOR="203.0.113.5, 10.0.0.1")
+        assert mixin._rate_limit_identity(request) == "10.0.0.1"
+
+    def test_falls_back_to_remote_addr_without_header(self, rf):
+        from core.ratelimit import RateLimitMixin
+
+        mixin = RateLimitMixin()
+        request = rf.post("/")
+        assert mixin._rate_limit_identity(request) == request.META.get("REMOTE_ADDR", "unknown")
+
 
 class TestHealthCheck:
     @pytest.mark.django_db
@@ -548,6 +682,19 @@ class TestRateLimit:
 
         response = client.post("/accounts/login/", {"username": "pastor", "password": "teste12345"})
         assert response.status_code == 302
+
+    def test_password_reset_gets_429_after_too_many_attempts(self, client):
+        # Achado numa revisão de segurança: reset de senha (Django
+        # padrão) não tinha rate limit nenhum — permitia spam de e-mail
+        # de reset em volume ilimitado.
+        from django.core.cache import cache
+        cache.clear()
+
+        for _ in range(5):
+            response = client.post("/accounts/senha/esqueci/", {"email": "alguem@example.com"})
+            assert response.status_code == 302
+        response = client.post("/accounts/senha/esqueci/", {"email": "alguem@example.com"})
+        assert response.status_code == 429
 
 
 @pytest.mark.django_db

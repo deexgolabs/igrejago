@@ -419,7 +419,12 @@ class RecurringPledgeCancelView(LoginRequiredMixin, View):
     def post(self, request, pk):
         pledge = get_object_or_404(RecurringPledge, pk=pk)
         is_owner = pledge.person_id and request.user.person_id == pledge.person_id
-        if not (is_owner or request.user.is_unrestricted_manager):
+        # `request.church is None` de propósito (achado numa revisão de
+        # segurança): sem essa checagem, uma conta hipotética
+        # `church=None` com `role=ADMIN` passaria em `is_unrestricted_manager`
+        # pra QUALQUER assinatura de QUALQUER igreja (o manager padrão de
+        # `RecurringPledge` não filtra sem igreja no thread-local).
+        if request.church is None or not (is_owner or request.user.is_unrestricted_manager):
             raise Http404
         if pledge.mercadopago_preapproval_id:
             try:
@@ -566,11 +571,28 @@ class DonationCreateView(LoginRequiredMixin, View):
         return redirect("finance:donation_pay", pk=donation.pk)
 
 
+def _get_donation_or_404(request, pk):
+    """Achado numa revisão de segurança: as 3 views abaixo buscavam a
+    doação só por `pk`, sem checar dono nem `request.church` — dentro
+    da mesma igreja, qualquer membro logado via/tentava pagar a doação
+    de OUTRO membro só incrementando o pk na URL; pra uma conta
+    `church=None` (dono da plataforma), o manager padrão de `Donation`
+    (TenantModel) nem filtra por igreja, então também cruzava tenant.
+    Mesmo critério que `RecurringPledgeCancelView` (mesmo arquivo) já
+    usa corretamente: dono do registro OU quem gerencia o financeiro
+    da igreja, nunca sem uma igreja resolvida."""
+    donation = get_object_or_404(Donation, pk=pk)
+    is_owner = donation.person_id and request.user.person_id == donation.person_id
+    if request.church is None or not (is_owner or request.user.is_unrestricted_manager):
+        raise Http404
+    return donation
+
+
 class DonationPayView(LoginRequiredMixin, View):
     template_name = "finance/donation_pay.html"
 
     def get(self, request, pk):
-        donation = get_object_or_404(Donation, pk=pk)
+        donation = _get_donation_or_404(request, pk)
         church_config = request.church
         context = {"donation": donation, "church_config": church_config}
         if church_config.pix_configured:
@@ -588,7 +610,7 @@ class DonationPayView(LoginRequiredMixin, View):
 
 class DonationMercadoPagoStartView(LoginRequiredMixin, View):
     def get(self, request, pk):
-        donation = get_object_or_404(Donation, pk=pk)
+        donation = _get_donation_or_404(request, pk)
         church_config = request.church
         if not church_config.mercadopago_configured:
             messages.error(request, "Pagamento via Mercado Pago não está configurado.")
@@ -670,7 +692,7 @@ class DonationPagBankStartView(LoginRequiredMixin, View):
     configurados)."""
 
     def get(self, request, pk):
-        donation = get_object_or_404(Donation, pk=pk)
+        donation = _get_donation_or_404(request, pk)
         church_config = request.church
         if not church_config.pagbank_configured:
             messages.error(request, "Pagamento via PagBank não está configurado.")

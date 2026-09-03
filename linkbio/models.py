@@ -3,6 +3,7 @@ from django.db import models
 from django.urls import reverse
 
 from core.tenancy import TenantModel
+from core.uploads import random_upload_to
 
 
 class BioPage(TenantModel):
@@ -15,7 +16,7 @@ class BioPage(TenantModel):
     slug = models.SlugField("Slug", max_length=50, default="links")
     church_name = models.CharField("Nome da igreja", max_length=150)
     headline = models.CharField("Frase de destaque", max_length=200, blank=True)
-    avatar = models.ImageField("Foto/logo", upload_to="linkbio/avatars/", blank=True, null=True)
+    avatar = models.ImageField("Foto/logo", upload_to=random_upload_to("linkbio/avatars"), blank=True, null=True)
     background_color = models.CharField("Cor de fundo", max_length=7, default="#0f172a")
     accent_color = models.CharField("Cor de destaque", max_length=7, default="#38bdf8")
     is_active = models.BooleanField("Ativa", default=True)

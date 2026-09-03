@@ -228,6 +228,44 @@ class TestExpandedFieldTypes:
         assert response.status_code == 200
         assert not FormResponse.objects.exists()
 
+    def test_disallowed_extension_is_rejected(self, client, custom_form):
+        # Achado numa revisão de segurança: antes disso, qualquer
+        # arquivo era aceito sem checar tipo — um visitante anônimo
+        # podia subir .html/.exe/etc.
+        file_field = FormField.objects.create(
+            church=custom_form.church, form=custom_form, label="Comprovante", field_type=FormField.FieldType.FILE,
+        )
+        upload = SimpleUploadedFile("malicioso.html", b"<script>alert(1)</script>")
+        response = client.post(f"/{custom_form.church.slug}/formularios/{custom_form.slug}/", {
+            f"field_{file_field.pk}": upload, "privacy_consent": "on",
+        })
+        assert response.status_code == 200
+        assert not FormResponse.objects.exists()
+
+    def test_oversized_file_is_rejected(self, client, custom_form):
+        file_field = FormField.objects.create(
+            church=custom_form.church, form=custom_form, label="Comprovante", field_type=FormField.FieldType.FILE,
+        )
+        upload = SimpleUploadedFile("grande.pdf", b"x" * (11 * 1024 * 1024))
+        response = client.post(f"/{custom_form.church.slug}/formularios/{custom_form.slug}/", {
+            f"field_{file_field.pk}": upload, "privacy_consent": "on",
+        })
+        assert response.status_code == 200
+        assert not FormResponse.objects.exists()
+
+    def test_uploaded_file_gets_random_name_not_original(self, client, custom_form):
+        file_field = FormField.objects.create(
+            church=custom_form.church, form=custom_form, label="Comprovante", field_type=FormField.FieldType.FILE,
+        )
+        upload = SimpleUploadedFile("nome-original-do-arquivo.txt", b"conteudo")
+        response = client.post(f"/{custom_form.church.slug}/formularios/{custom_form.slug}/", {
+            f"field_{file_field.pk}": upload, "privacy_consent": "on",
+        })
+        assert response.status_code == 302
+        answer = FormResponse.objects.get().answers.get(field=file_field)
+        assert "nome-original-do-arquivo" not in answer.file.name
+        assert answer.file.name.endswith(".txt")
+
 
 @pytest.mark.django_db
 class TestHoneypot:

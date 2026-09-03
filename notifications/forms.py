@@ -22,6 +22,12 @@ class WhatsAppProviderForm(forms.ModelForm):
             "whatsapp_meta_access_token",
             "whatsapp_meta_business_account_id",
         ]
+        widgets = {
+            # Mesmo motivo de `core.forms.ChurchConfigForm` — não mostra
+            # mais o token em claro na tela; a view que salva precisa
+            # manter o valor antigo se o campo chegar em branco.
+            "whatsapp_meta_access_token": forms.PasswordInput(render_value=False, attrs={"autocomplete": "off"}),
+        }
 
 
 class WhatsAppInstanceCreateForm(forms.ModelForm):

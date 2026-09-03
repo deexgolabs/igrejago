@@ -36,9 +36,13 @@ class ApiKeyRequiredMixin:
 class ApiKeyRateLimitMixin(RateLimitMixin):
     """Limita por CHAVE de API (não por IP — várias igrejas podem estar
     atrás do mesmo NAT/proxy corporativo e não devem dividir o mesmo
-    limite) e conta GET (a API de leitura não usa POST)."""
+    limite). Conta GET, POST e PATCH — achado numa revisão de
+    segurança: só GET era contado, então os endpoints de escrita
+    (criar/editar Pessoa, lançar Transação, inscrever em Evento,
+    adicionados numa rodada depois desta classe existir) ficavam sem
+    nenhum limite pra uma chave vazada."""
 
-    rate_limit_methods = ("GET",)
+    rate_limit_methods = ("GET", "POST", "PATCH")
     rate_limit_max = 300
     rate_limit_window_seconds = 300
 

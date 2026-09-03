@@ -5,6 +5,48 @@ import pytest
 from people.models import Person
 
 
+class TestApiRateLimit:
+    """Achado numa revisão de segurança: `ApiKeyRateLimitMixin` só
+    contava GET — os endpoints de escrita (criar/editar Pessoa, lançar
+    Transação, inscrever em Evento) ficavam sem limite nenhum pra uma
+    chave vazada."""
+
+    def test_write_methods_are_rate_limited(self):
+        from api.auth import ApiKeyRateLimitMixin
+
+        assert "POST" in ApiKeyRateLimitMixin.rate_limit_methods
+        assert "PATCH" in ApiKeyRateLimitMixin.rate_limit_methods
+
+    @pytest.mark.django_db
+    def test_post_gets_429_after_too_many_attempts(self, client, church, settings):
+        from django.core.cache import cache
+
+        from api.auth import ApiKeyRateLimitMixin
+
+        cache.clear()
+        # Reduz o limite só pra este teste em vez de disparar 300
+        # requests de verdade — o mecanismo em si (contagem/janela) já
+        # é coberto por `core.tests.TestRateLimit`.
+        original_max = ApiKeyRateLimitMixin.rate_limit_max
+        ApiKeyRateLimitMixin.rate_limit_max = 3
+        try:
+            church.api_key = "chave-rate-limit"
+            church.save()
+            for _ in range(3):
+                response = client.post(
+                    "/api/pessoas/", data=json.dumps({}), content_type="application/json",
+                    HTTP_AUTHORIZATION="Bearer chave-rate-limit",
+                )
+                assert response.status_code != 429
+            response = client.post(
+                "/api/pessoas/", data=json.dumps({}), content_type="application/json",
+                HTTP_AUTHORIZATION="Bearer chave-rate-limit",
+            )
+            assert response.status_code == 429
+        finally:
+            ApiKeyRateLimitMixin.rate_limit_max = original_max
+
+
 @pytest.mark.django_db
 class TestApiAuth:
     def test_missing_authorization_header_is_401(self, client):

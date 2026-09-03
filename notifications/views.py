@@ -432,8 +432,14 @@ class WhatsAppMetaConfigView(IsChurchManagerMixin, View):
     `core.whatsapp.enviar_whatsapp` usam pra valer."""
 
     def post(self, request):
+        # `whatsapp_meta_access_token` usa `PasswordInput(render_value=False)`
+        # — chega em branco no POST a menos que troquem o valor; sem
+        # isso, salvar essa tela sem mexer no token apagaria ele.
+        token_atual = request.church.whatsapp_meta_access_token
         form = WhatsAppProviderForm(request.POST, instance=request.church)
         if form.is_valid():
+            if not form.cleaned_data.get("whatsapp_meta_access_token"):
+                form.instance.whatsapp_meta_access_token = token_atual
             form.save()
             messages.success(request, "Canal de WhatsApp atualizado.")
         else:

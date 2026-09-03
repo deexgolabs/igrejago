@@ -49,6 +49,11 @@ def processar_mensagem_recebida(*, church, instance, phone, texto, raw):
     phone = _normalizar_telefone(phone)
     if not phone:
         return
+    if not ratelimit.mensagem_permitida(church, phone):
+        # Estourou o volume geral (não é o limite de IA) — nem
+        # responde, pra não amplificar uma rajada com mais envio de
+        # saída; só para de processar em silêncio.
+        return
     if texto is None:
         _processar_midia_sem_texto(church, instance, phone, raw)
         return

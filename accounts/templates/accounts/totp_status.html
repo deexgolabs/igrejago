@@ -9,8 +9,13 @@
         Autenticação em duas etapas está <strong>ativada</strong> nesta conta.
     </p>
     <form method="post" action="{% url 'accounts:totp_disable' %}"
-          onsubmit="return confirm('Desativar a autenticação em duas etapas desta conta?');">
+          onsubmit="return confirm('Desativar a autenticação em duas etapas desta conta?');" class="space-y-2">
         {% csrf_token %}
+        <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1">Confirme sua senha</label>
+            <input type="password" name="password" required autocomplete="current-password"
+                   class="border border-slate-300 rounded-lg px-3 py-2 text-sm w-full max-w-xs">
+        </div>
         <button type="submit" class="border border-red-200 text-red-600 rounded-lg px-4 py-2 text-sm hover:bg-red-50">
             Desativar
         </button>

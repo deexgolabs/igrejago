@@ -13,6 +13,7 @@ from accounts.mixins import IsChurchManagerMixin
 from core.lgpd import privacy_consent_label
 from core.ratelimit import RateLimitMixin
 from core.tenancy import PublicChurchMixin, TenantFormMixin
+from core.uploads import validar_upload
 from custom_forms.forms import CustomFormForm, FormFieldForm
 from custom_forms.models import CustomForm, FormAnswer, FormField, FormResponse
 from custom_forms.starter_templates import STARTER_TEMPLATES
@@ -283,10 +284,14 @@ class PublicFormView(PublicChurchMixin, RateLimitMixin, View):
                     errors[field.pk] = "Campo obrigatório."
             elif field.field_type == FormField.FieldType.FILE:
                 uploaded = request.FILES.get(f"field_{field.pk}")
+                ok, motivo = validar_upload(uploaded)
+                if not ok:
+                    errors[field.pk] = motivo
+                    uploaded = None
                 files[field.pk] = uploaded
                 cleaned[field.pk] = uploaded.name if uploaded else ""
                 if field.required and not uploaded:
-                    errors[field.pk] = "Campo obrigatório."
+                    errors[field.pk] = errors.get(field.pk) or "Campo obrigatório."
             else:
                 raw_value = request.POST.get(f"field_{field.pk}", "").strip()
                 cleaned[field.pk] = raw_value

@@ -196,9 +196,15 @@ class TestTOTPSetupFlow:
 
     def test_disable_removes_device(self, pastor_client, pastor_user):
         TOTPDevice.objects.create(user=pastor_user, secret=generate_secret(), confirmed=True)
-        response = pastor_client.post("/accounts/2fa/desativar/")
+        response = pastor_client.post("/accounts/2fa/desativar/", {"password": "teste12345"})
         assert response.status_code == 302
         assert not TOTPDevice.objects.filter(user=pastor_user).exists()
+
+    def test_disable_requires_correct_password(self, pastor_client, pastor_user):
+        TOTPDevice.objects.create(user=pastor_user, secret=generate_secret(), confirmed=True)
+        response = pastor_client.post("/accounts/2fa/desativar/", {"password": "senha-errada"})
+        assert response.status_code == 302
+        assert TOTPDevice.objects.filter(user=pastor_user).exists()
 
 
 @pytest.mark.django_db

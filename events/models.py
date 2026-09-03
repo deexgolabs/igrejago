@@ -6,6 +6,7 @@ from django.urls import reverse
 from django.utils.text import slugify
 
 from core.tenancy import TenantModel
+from core.uploads import random_upload_to
 
 
 class Event(TenantModel):
@@ -20,7 +21,7 @@ class Event(TenantModel):
     title = models.CharField("Título", max_length=200)
     slug = models.SlugField("Slug", max_length=220, blank=True)
     description = models.TextField("Descrição", blank=True)
-    image = models.ImageField("Imagem de capa", upload_to="events/covers/", blank=True, null=True)
+    image = models.ImageField("Imagem de capa", upload_to=random_upload_to("events/covers"), blank=True, null=True)
 
     location = models.CharField("Local", max_length=255, blank=True)
     start_datetime = models.DateTimeField("Início")

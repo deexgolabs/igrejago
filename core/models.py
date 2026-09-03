@@ -3,6 +3,7 @@ from django.db import models
 from django.utils.text import slugify
 
 from core.tenancy import TenantModel
+from core.uploads import random_upload_to
 
 
 class DataDeletionRequest(TenantModel):
@@ -108,7 +109,7 @@ class Church(models.Model):
     name = models.CharField("Nome da igreja", max_length=150)
     slug = models.SlugField("Slug", max_length=170, unique=True, blank=True)
     pastor_name = models.CharField("Nome do pastor", max_length=150, blank=True)
-    logo = models.ImageField("Logo", upload_to="core/", blank=True, null=True)
+    logo = models.ImageField("Logo", upload_to=random_upload_to("core"), blank=True, null=True)
     brand_color = models.CharField(
         "Cor de marca", max_length=7, default="#2563eb",
         help_text="Usada para gerar a paleta de cores do sistema (botões, links etc.).",

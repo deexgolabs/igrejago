@@ -12,13 +12,31 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv(
-    "SECRET_KEY", "django-insecure-lt&jqs@&!@fnmh3&m04o$61r36rvm(2&ctc$euupe2siv!$4@r"
-)
-
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv("DEBUG", "True") == "True"
+# Default "False" (falha FECHADO) — achado numa revisão de segurança:
+# o default anterior era "True", então um deploy que esquecesse de
+# setar a env var subia com DEBUG ligado (stack trace completo, chave
+# secreta exposta em página de erro) sem ninguém perceber.
+DEBUG = os.getenv("DEBUG", "False") == "True"
+
+# SECURITY WARNING: keep the secret key used in production secret!
+# O fallback só vale em DEBUG (dev local, sem `.env`) — com DEBUG=False
+# e a env var ausente, a aplicação recusa subir em vez de usar essa
+# chave (pública, está no repositório) em produção. Achado na mesma
+# revisão: o fallback antes valia sempre, então um deploy sem
+# `SECRET_KEY` configurada assinava sessão/token de reset de senha com
+# uma chave que qualquer um com acesso ao código já conhece.
+SECRET_KEY = os.getenv("SECRET_KEY", "")
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = "django-insecure-lt&jqs@&!@fnmh3&m04o$61r36rvm(2&ctc$euupe2siv!$4@r"
+    else:
+        from django.core.exceptions import ImproperlyConfigured
+
+        raise ImproperlyConfigured(
+            "SECRET_KEY precisa estar definida (env var) quando DEBUG=False — "
+            "gere uma chave forte e configure no .env de produção."
+        )
 
 ALLOWED_HOSTS = [h.strip() for h in os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h.strip()]
 

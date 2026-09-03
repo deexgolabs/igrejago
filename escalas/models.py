@@ -3,6 +3,7 @@ import uuid
 from django.db import models
 
 from core.tenancy import TenantModel
+from core.uploads import random_upload_to
 from people.models import Department
 
 
@@ -129,7 +130,7 @@ class Song(TenantModel):
     artist = models.CharField("Artista/banda", max_length=150, blank=True)
     default_key = models.CharField("Tom padrão", max_length=10, blank=True)
     chord_chart = models.FileField(
-        "Cifra (PDF ou imagem)", upload_to="songs/cifras/%Y/%m/", blank=True, null=True,
+        "Cifra (PDF ou imagem)", upload_to=random_upload_to("songs/cifras"), blank=True, null=True,
     )
     lyrics = models.TextField("Letra/cifra em texto", blank=True)
     tags = models.CharField("Tags", max_length=200, blank=True, help_text="Separadas por vírgula.")

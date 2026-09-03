@@ -9,6 +9,7 @@ from accounts.mixins import IsChurchManagerMixin
 from assistant import alerts
 from assistant.forms import PersonUpdateForm
 from assistant.models import PERSON_DRAFT_ALLOWED_FIELDS, Conversation, PersonDraft, PersonUpdateLink
+from core.ratelimit import RateLimitMixin
 from people.models import Person
 
 
@@ -75,14 +76,20 @@ class ConversationHumanQueueListView(IsChurchManagerMixin, ListView):
         return Conversation.objects.filter(state=Conversation.State.AGUARDANDO_HUMANO).select_related("person")
 
 
-class PersonUpdateFormView(View):
+class PersonUpdateFormView(RateLimitMixin, View):
     """Pública, sem login, resolvida por token — mesmo padrão de
     `escalas.ConfirmarEscalaView`. Nunca liga o form direto na `Person`
     real: todo POST vira um `PersonDraft` pendente, mesma fila do
     WhatsApp (consistência de revisão pra secretaria, e defesa contra
-    link encaminhado/preenchido por engano)."""
+    link encaminhado/preenchido por engano). Rate limit (achado numa
+    revisão de segurança): sem isso, um link vazado/encaminhado
+    permitia POST repetido sem limite, poluindo a fila de aprovação e
+    disparando e-mail real pra secretaria a cada envio."""
 
     template_name = "assistant/person_update_form.html"
+    rate_limit_key = "assistant_update_form"
+    rate_limit_max = 10
+    rate_limit_window_seconds = 300
 
     def get(self, request, token):
         link = get_object_or_404(PersonUpdateLink.todas_as_igrejas.select_related("person"), token=token)

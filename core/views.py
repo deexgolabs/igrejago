@@ -1,4 +1,3 @@
-import json
 import logging
 import re
 from datetime import date, datetime, time
@@ -36,6 +35,7 @@ from core.ratelimit import RateLimitMixin
 from core.reports import generate_general_report_pdf
 from core.tenancy import TenantFormMixin
 from core.tokens import gerar_token_confirmacao, verificar_token_confirmacao
+from core.utils import json_para_script
 from people.models import Person
 
 logger = logging.getLogger(__name__)
@@ -136,7 +136,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             "birthdays_this_month": Person.objects.filter(
                 birth_date__month=today.month
             ).order_by("birth_date__day"),
-            "growth_chart": json.dumps(self._growth_last_6_months(today)),
+            "growth_chart": json_para_script(self._growth_last_6_months(today)),
         }
 
         role_labels = dict(Person.Role.choices)
@@ -156,12 +156,12 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             .annotate(total=Count("id"))
             .order_by("-total")
         )
-        context["members_by_role_chart"] = json.dumps(context["members_by_role"])
-        context["members_by_department_chart"] = json.dumps([
+        context["members_by_role_chart"] = json_para_script(context["members_by_role"])
+        context["members_by_department_chart"] = json_para_script([
             {"label": row["department__name"], "total": row["total"]}
             for row in context["members_by_department"]
         ])
-        context["pipeline_funnel"] = json.dumps(self._pipeline_funnel())
+        context["pipeline_funnel"] = json_para_script(self._pipeline_funnel())
         # Financeiro é mais sensível — só pra quem NÃO é um Líder de
         # Departamento escopado (mesmo corte já usado pra esconder o
         # próprio módulo Financeiro do menu desse perfil).
@@ -204,7 +204,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         return {
             "arrecadado_mes": arrecadado_mes,
             "ticket_medio_doacao": round(ticket_medio_doacao, 2),
-            "financeiro_chart": json.dumps({"labels": labels, "receitas": receitas, "despesas": despesas}),
+            "financeiro_chart": json_para_script({"labels": labels, "receitas": receitas, "despesas": despesas}),
         }
 
     @staticmethod
@@ -336,7 +336,7 @@ class CustomReportView(CanManagePeopleMixin, View):
         context = {"form": form, "rows": None, "total": None, "chart_data": "[]"}
         if request.GET and form.is_valid():
             rows, total = _relatorio_pessoas(form.cleaned_data)
-            context.update({"rows": rows, "total": total, "chart_data": json.dumps(rows)})
+            context.update({"rows": rows, "total": total, "chart_data": json_para_script(rows)})
         return render(request, self.template_name, context)
 
 
@@ -590,9 +590,20 @@ class SettingsView(IsChurchManagerMixin, View):
         form = ChurchConfigForm(instance=request.church)
         return render(request, self.template_name, {"form": form})
 
+    # Campos de credencial cujo widget virou `PasswordInput(render_value=False)`
+    # (revisão de segurança — não mostra mais o valor salvo em claro na
+    # tela). Consequência: o campo SEMPRE chega em branco no POST a
+    # menos que a pessoa digite um valor novo — sem tratar isso à parte,
+    # salvar o formulário sem trocar a credencial apagaria ela.
+    _CAMPOS_CREDENCIAL = ("mercadopago_access_token", "pagbank_token", "ia_api_key")
+
     def post(self, request):
+        valores_atuais = {campo: getattr(request.church, campo) for campo in self._CAMPOS_CREDENCIAL}
         form = ChurchConfigForm(request.POST, request.FILES, instance=request.church)
         if form.is_valid():
+            for campo, valor_atual in valores_atuais.items():
+                if not form.cleaned_data.get(campo):
+                    setattr(form.instance, campo, valor_atual)
             form.save()
             messages.success(request, "Configurações salvas.")
             return redirect("core:settings")
@@ -1319,5 +1330,11 @@ class GenerateApiKeyView(IsChurchManagerMixin, View):
 
         request.church.api_key = secrets.token_hex(32)
         request.church.save(update_fields=["api_key"])
-        messages.success(request, "Nova chave de API gerada.")
+        # A tela normal de Configurações só mostra a chave mascarada
+        # (achado numa revisão de segurança) — essa mensagem é a ÚNICA
+        # vez que a chave completa aparece, copie agora.
+        messages.success(
+            request,
+            f"Chave gerada: {request.church.api_key} — copie agora, não será mostrada por completo de novo.",
+        )
         return redirect("core:settings")

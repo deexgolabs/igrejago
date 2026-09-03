@@ -135,7 +135,12 @@
         <code>email</code> e <code>consent: true</code> confirmando que já obteve o consentimento LGPD de quem se inscreve).
     </p>
     {% if church_config.api_key %}
-    <p class="text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 mb-3 break-all">{{ church_config.api_key }}</p>
+    <p class="text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 mb-3 break-all">
+        {{ church_config.api_key|slice:":6" }}…{{ church_config.api_key|slice:"-4:" }}
+    </p>
+    <p class="text-xs text-slate-400 mb-3">
+        Chave completa mostrada só ao gerar/regerar — copie e guarde num lugar seguro na hora.
+    </p>
     {% else %}
     <p class="text-xs text-slate-400 mb-3">Nenhuma chave gerada ainda.</p>
     {% endif %}

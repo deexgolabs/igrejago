@@ -412,6 +412,41 @@ publica em nome de todas sob uma conta só (a plataforma paga uma vez,
 controla a publicação de todo mundo)? Os dois são possíveis com o
 terreno já preparado aqui — só decida antes de publicar a primeira.
 
+## 6.2. Revisão de segurança — pendências reais documentadas
+
+Depois de uma revisão de segurança completa (14 achados, corrigidos
+nesta rodada — ver histórico do projeto), 2 ficaram deliberadamente
+fora do código, por decisão consciente, não por esquecimento:
+
+**Mídia enviada (`/media/`) não tem controle de acesso de verdade.**
+A seção 2 acima já orienta servir `/media/` direto pelo Nginx/hospedagem
+estática, fora do Django — nenhuma autenticação controla quem acessa um
+arquivo já enviado (foto de pessoa, anexo de formulário público, cifra,
+áudio de sermão). O nome do arquivo agora é aleatório (UUID —
+`core.uploads.random_upload_to`), o que fecha o vetor de "adivinhar a
+URL", mas **não é controle de acesso**: quem TEM o link (vazado,
+encaminhado, num print de tela) ainda vê o arquivo. Controle de acesso
+de verdade exigiria servir mídia através de uma view Django autenticada
+(`X-Accel-Redirect` no Nginx, ou equivalente no PythonAnywhere) — mudança
+de infraestrutura de produção, fora do escopo desta rodada de correção,
+com custo de performance a avaliar.
+
+**Nenhuma credencial de igreja é criptografada em repouso.** Mercado
+Pago, PagBank, chave de IA, Meta access token — tudo em `CharField`
+texto puro no banco. Um vazamento de backup/dump expõe tudo de uma vez.
+Não corrigido nesta rodada de propósito: as credenciais já salvas são
+de igrejas reais, em uso ativo processando pagamento de verdade —
+criptografar exige uma migração de dado real em produção + uma chave
+nova (`ENCRYPTION_KEY`) cuja perda tornaria essas credenciais
+inacessíveis (pagamento recorrente/PIX pararia de funcionar). Precisa
+de uma rodada própria, dedicada, com plano de rollback testado antes de
+tocar em produção — não algo pra fazer numa varredura de várias
+correções ao mesmo tempo. Caminho sugerido quando for feito:
+`cryptography` (Fernet), um campo customizado (`EncryptedCharField`) em
+`core/`, `ENCRYPTION_KEY` nova no `.env` de plataforma, migração que
+recriptografa cada valor já salvo com verificação de round-trip antes
+de apagar o texto puro.
+
 ## 7. Depois de qualquer deploy novo
 
 ```bash

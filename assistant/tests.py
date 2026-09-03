@@ -487,3 +487,39 @@ class TestEngineMedia:
         conversation = Conversation.objects.get(church=church, phone=PHONE)
         entrada = conversation.mensagens.filter(direction=ConversationMessage.Direction.IN).first()
         assert entrada.body == "[mídia recebida]"
+
+
+@pytest.mark.django_db
+class TestPersonUpdateFormRateLimit:
+    """Achado numa revisão de segurança: `PersonUpdateFormView` (link
+    público por token) não tinha rate limit — um link vazado permitia
+    POST repetido sem limite."""
+
+    def test_blocks_after_too_many_posts(self, client, church, person):
+        cache.clear()
+        link = PersonUpdateLink.objects.create(church=church, person=person)
+        for _ in range(10):
+            response = client.post(f"/assistente/atualizar-cadastro/{link.token}/", {})
+            assert response.status_code != 429
+        response = client.post(f"/assistente/atualizar-cadastro/{link.token}/", {})
+        assert response.status_code == 429
+
+
+@pytest.mark.django_db
+class TestMessageFlood:
+    """Achado numa revisão de segurança: nenhum limite cobria o VOLUME
+    de mensagem recebida em si (só a chamada de IA) — um número em
+    rajada, mesmo sem nunca acionar IA, custava escrita no banco +
+    envio de resposta por mensagem sem freio nenhum."""
+
+    def test_blocks_after_too_many_messages_without_calling_ai(self, church):
+        cache.clear()
+        church.ia_chat_enabled = True
+        church.save()
+        for _ in range(ratelimit.MENSAGEM_MAX):
+            _receber(church, "oi")
+        with patch("assistant.ai.gerar_resposta") as mock_ia, patch("assistant.ai.extrair_dados_cadastro") as mock_extrair:
+            mock_send = _receber(church, "oi")
+        assert not mock_send.called
+        assert not mock_ia.called
+        assert not mock_extrair.called

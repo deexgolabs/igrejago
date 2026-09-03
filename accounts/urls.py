@@ -3,6 +3,8 @@ from django.urls import path
 
 from accounts.views import (
     RateLimitedLoginView,
+    RateLimitedPasswordResetConfirmView,
+    RateLimitedPasswordResetView,
     TOTPDisableView,
     TOTPSetupView,
     TOTPStatusView,
@@ -20,7 +22,7 @@ urlpatterns = [
     path("2fa/verificar/", TOTPVerifyView.as_view(), name="totp_verify"),
     path(
         "senha/esqueci/",
-        auth_views.PasswordResetView.as_view(
+        RateLimitedPasswordResetView.as_view(
             template_name="accounts/password_reset_form.html",
             email_template_name="accounts/password_reset_email.html",
             subject_template_name="accounts/password_reset_subject.txt",
@@ -35,7 +37,7 @@ urlpatterns = [
     ),
     path(
         "senha/redefinir/<uidb64>/<token>/",
-        auth_views.PasswordResetConfirmView.as_view(
+        RateLimitedPasswordResetConfirmView.as_view(
             template_name="accounts/password_reset_confirm.html",
             success_url="/accounts/senha/redefinir/concluido/",
         ),

@@ -4,6 +4,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.tenancy import TenantModel
+from core.uploads import random_upload_to
 
 
 class Department(TenantModel):
@@ -115,7 +116,7 @@ class Person(TenantModel):
 
     # Identificação
     full_name = models.CharField("Nome completo", max_length=200)
-    photo = models.ImageField("Foto", upload_to="people/photos/", blank=True, null=True)
+    photo = models.ImageField("Foto", upload_to=random_upload_to("people/photos"), blank=True, null=True)
     birth_date = models.DateField("Data de nascimento", blank=True, null=True)
     gender = models.CharField("Sexo", max_length=1, choices=Gender.choices, blank=True)
     marital_status = models.CharField(

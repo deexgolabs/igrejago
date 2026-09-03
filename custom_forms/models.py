@@ -4,6 +4,7 @@ from django.urls import reverse
 from django.utils.text import slugify
 
 from core.tenancy import TenantModel
+from core.uploads import random_upload_to
 
 # As 27 UFs — usado só pra renderizar um <select> decente no campo tipo
 # "Estado (UF)"; não é FK de nada, é só uma lista fixa de siglas.
@@ -241,7 +242,7 @@ class FormAnswer(TenantModel):
     field = models.ForeignKey(FormField, on_delete=models.CASCADE, related_name="answers", verbose_name="Campo")
     value = models.TextField("Valor", blank=True)
     file = models.FileField(
-        "Arquivo", upload_to="custom_forms/respostas/%Y/%m/", blank=True, null=True,
+        "Arquivo", upload_to=random_upload_to("custom_forms/respostas"), blank=True, null=True,
         help_text="Só preenchido quando o campo é do tipo \"Arquivo (anexo)\".",
     )
 

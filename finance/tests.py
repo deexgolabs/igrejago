@@ -164,6 +164,24 @@ class TestDonation:
         response = member_client.post(f"/financeiro/doacoes/{donation.pk}/confirmar/")
         assert response.status_code == 403
 
+    def test_member_cannot_view_another_members_donation(self, member_client, member_user, person, church):
+        # Achado numa revisão de segurança: antes, qualquer membro
+        # logado via/tentava pagar a doação de OUTRO membro só
+        # incrementando o pk na URL (IDOR).
+        from people.models import Person
+
+        member_user.person = person
+        member_user.save()
+        outra_pessoa = Person.objects.create(church=church, full_name="Outra Pessoa", phone="62999997777")
+        donation = Donation.objects.create(church=church, person=outra_pessoa, amount=75)
+        response = member_client.get(f"/financeiro/doacoes/{donation.pk}/pagar/")
+        assert response.status_code == 404
+
+    def test_manager_can_view_any_donation(self, pastor_client, person, church):
+        donation = Donation.objects.create(church=church, person=person, amount=75)
+        response = pastor_client.get(f"/financeiro/doacoes/{donation.pk}/pagar/")
+        assert response.status_code == 200
+
 
 @pytest.mark.django_db
 class TestDonationPagBank:
