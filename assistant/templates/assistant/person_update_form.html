@@ -1,0 +1,29 @@
+{% extends "public_base.html" %}
+{% block title %}Atualizar cadastro{% endblock %}
+{% block content %}
+<div class="bg-white border border-slate-200 rounded-xl p-6">
+    <h1 class="text-lg font-bold text-slate-900 mb-1">Atualizar cadastro — {{ church.name }}</h1>
+    <p class="text-sm text-slate-500 mb-4">
+        Olá, {{ person.full_name }}! Confira/atualize seus dados abaixo — sua secretaria vai revisar
+        antes de confirmar. Deixe em branco o que não quiser mudar.
+    </p>
+
+    {% if form.non_field_errors %}
+    <div class="text-sm text-red-600 mb-3">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <form method="post" class="form-padrao space-y-3">
+        {% csrf_token %}
+        {% for field in form %}
+        <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1">{{ field.label }}</label>
+            {{ field }}
+            {% if field.errors %}<span class="text-xs text-red-600">{{ field.errors }}</span>{% endif %}
+        </div>
+        {% endfor %}
+        <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg px-4 py-2.5 w-full">
+            Enviar atualização
+        </button>
+    </form>
+</div>
+{% endblock %}

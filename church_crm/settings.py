@@ -72,6 +72,7 @@ INSTALLED_APPS = [
     "escalas",
     "sermons",
     "api",
+    "assistant",
 ]
 
 MIDDLEWARE = [

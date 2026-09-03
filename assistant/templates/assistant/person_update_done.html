@@ -1,0 +1,8 @@
+{% extends "public_base.html" %}
+{% block title %}Atualização recebida{% endblock %}
+{% block content %}
+<div class="bg-white border border-slate-200 rounded-xl p-6 text-center">
+    <h1 class="text-lg font-bold text-slate-900 mb-2">Recebemos sua atualização! ✓</h1>
+    <p class="text-sm text-slate-500">A secretaria vai revisar e confirmar em breve, {{ person.full_name }}.</p>
+</div>
+{% endblock %}

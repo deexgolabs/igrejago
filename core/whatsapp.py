@@ -25,7 +25,14 @@ Meta + consulta manual de status já são reais (chamadas de verdade na
 Graph API). USAR um template já APROVADO pra efetivamente enviar
 mensagem já está feito (ver `enviar_whatsapp(..., meta_template=...)`
 abaixo) — falta só o webhook de status/entrega assinado oficialmente
-pela Meta (`notifications.MetaWhatsAppWebhookView`)."""
+pela Meta (`notifications.MetaWhatsAppWebhookView`).
+
+Mensagem RECEBIDA (o contato mandando algo pra igreja, não confirmação
+de entrega) é tratada em `notifications.views.WhatsAppWebhookView`/
+`MetaWhatsAppWebhookView` (evento `messages.upsert`/`value.messages[]`),
+que delega pro motor de atendimento em `assistant.engine` — este
+arquivo continua só sendo usado pra ENVIAR (respostas do assistente
+incluídas, via `enviar_whatsapp` normal)."""
 
 import logging
 import sys
@@ -242,7 +249,7 @@ def criar_instancia(church_config, *, instance_name, webhook_url=None, webhook_s
             "byEvents": False,
             "base64": False,
             "headers": {"X-Webhook-Secret": webhook_secret},
-            "events": ["MESSAGES_UPDATE"],
+            "events": ["MESSAGES_UPDATE", "MESSAGES_UPSERT"],
         }
     response = requests.post(
         f"{church_config.whatsapp_api_url}/instance/create",
@@ -274,7 +281,7 @@ def configurar_webhook(church_config, *, instance_name, webhook_url, webhook_sec
                 "byEvents": False,
                 "base64": False,
                 "headers": {"X-Webhook-Secret": webhook_secret},
-                "events": ["MESSAGES_UPDATE"],
+                "events": ["MESSAGES_UPDATE", "MESSAGES_UPSERT"],
             }
         },
         headers={"apikey": church_config.whatsapp_api_key},

@@ -54,5 +54,20 @@
 <style>#id_role { flex: 1; border: 1px solid #d1d5db; border-radius: 0.5rem; padding: 0.4rem 0.65rem; font-size: 0.875rem; }</style>
 {% endif %}
 
+{% if person.phone %}
+<div class="mt-6 p-4 bg-white border border-slate-200 rounded-xl">
+    <h2 class="text-sm font-semibold text-slate-700 mb-1">Atualização cadastral</h2>
+    <p class="text-xs text-slate-400 mb-3">
+        Manda um link pessoal por WhatsApp pra {{ person.full_name }} atualizar os próprios dados —
+        qualquer envio vira um rascunho em
+        <a href="{% url 'assistant:draft_list' %}" class="underline">Cadastros pendentes</a> pra você revisar antes.
+    </p>
+    <form method="post" action="{% url 'people:send_update_link' person.pk %}">
+        {% csrf_token %}
+        <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm rounded-lg px-4 py-1.5">Enviar link de atualização</button>
+    </form>
+</div>
+{% endif %}
+
 <a href="{% url 'people:list' %}" class="inline-block mt-4 text-sm text-brand-700 hover:underline">← Voltar para a lista</a>
 {% endblock %}

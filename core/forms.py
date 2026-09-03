@@ -27,12 +27,14 @@ class ChurchConfigForm(forms.ModelForm):
             "admin_alert_emails",
             "pix_key", "pix_key_type", "pix_receiver_name", "pix_receiver_city",
             "mercadopago_access_token", "pagbank_token",
+            "ia_provider", "ia_api_key", "ia_knowledge_base", "ia_chat_enabled",
         ]
         widgets = {
             "brand_color": forms.TextInput(attrs={"type": "color"}),
             "whatsapp_absence_template": forms.Textarea(attrs={"rows": 3}),
             "whatsapp_birthday_template": forms.Textarea(attrs={"rows": 3}),
             "whatsapp_escala_template": forms.Textarea(attrs={"rows": 3}),
+            "ia_knowledge_base": forms.Textarea(attrs={"rows": 6}),
         }
 
 

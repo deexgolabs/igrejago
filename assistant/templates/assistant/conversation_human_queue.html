@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Aguardando atendimento{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold text-slate-900 mb-1">Aguardando atendimento humano</h1>
+<p class="text-sm text-slate-500 mb-6">
+    Pessoas que escolheram "falar com a secretaria" no assistente de WhatsApp — o bot parou de
+    responder sozinho nesses números. Responda pela tela de
+    <a href="{% url 'notifications:create' %}" class="text-brand-600 hover:underline">mensagem avulsa</a>.
+</p>
+
+<div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-left text-xs text-slate-500 uppercase">
+            <tr>
+                <th class="px-4 py-3">Telefone</th>
+                <th class="px-4 py-3">Pessoa</th>
+                <th class="px-4 py-3">Desde</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+            {% for conversation in conversations %}
+            <tr class="hover:bg-slate-50">
+                <td class="px-4 py-3 font-medium text-slate-800">{{ conversation.phone }}</td>
+                <td class="px-4 py-3 text-slate-600">{{ conversation.person.full_name|default:"—" }}</td>
+                <td class="px-4 py-3 text-slate-600">{{ conversation.last_message_at|date:"d/m/Y H:i" }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="3" class="px-4 py-6 text-center text-slate-400">Ninguém aguardando atendimento.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

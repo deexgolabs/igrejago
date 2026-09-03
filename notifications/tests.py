@@ -731,6 +731,126 @@ class TestMetaWhatsAppWebhook:
         )
         assert response.status_code == 200
 
+    def test_delegates_inbound_text_message_to_assistant_engine(self, client, settings, church_config):
+        settings.META_APP_SECRET = "app-secret"
+        church_config.whatsapp_meta_phone_number_id = "meta-phone-123"
+        church_config.save()
+        payload = {
+            "entry": [{"changes": [{
+                "field": "messages",
+                "value": {
+                    "metadata": {"phone_number_id": "meta-phone-123"},
+                    "messages": [{"from": "5562911110001", "type": "text", "text": {"body": "Oi"}}],
+                },
+            }]}]
+        }
+        body = json.dumps(payload).encode()
+        with patch("assistant.engine.processar_mensagem_recebida") as mock_processar:
+            response = client.post(
+                "/mensagens/webhook/meta/", data=body, content_type="application/json",
+                HTTP_X_HUB_SIGNATURE_256=self._assinar(body, "app-secret"),
+            )
+        assert response.status_code == 200
+        assert mock_processar.called
+        kwargs = mock_processar.call_args.kwargs
+        assert kwargs["church"] == church_config
+        assert kwargs["instance"] is None
+        assert kwargs["phone"] == "5562911110001"
+        assert kwargs["texto"] == "Oi"
+
+    def test_ignores_non_text_inbound_messages(self, client, settings, church_config):
+        settings.META_APP_SECRET = "app-secret"
+        church_config.whatsapp_meta_phone_number_id = "meta-phone-123"
+        church_config.save()
+        payload = {
+            "entry": [{"changes": [{
+                "field": "messages",
+                "value": {
+                    "metadata": {"phone_number_id": "meta-phone-123"},
+                    "messages": [{"from": "5562911110001", "type": "image"}],
+                },
+            }]}]
+        }
+        body = json.dumps(payload).encode()
+        with patch("assistant.engine.processar_mensagem_recebida") as mock_processar:
+            response = client.post(
+                "/mensagens/webhook/meta/", data=body, content_type="application/json",
+                HTTP_X_HUB_SIGNATURE_256=self._assinar(body, "app-secret"),
+            )
+        assert response.status_code == 200
+        assert not mock_processar.called
+
+
+@pytest.mark.django_db
+class TestWhatsAppInboundMessage:
+    """`messages.upsert` (Evolution) — mensagem que o CONTATO mandou,
+    delega pro assistente de IA (`assistant.engine`). Comportamento do
+    motor em si (menu/coleta/IA) é testado em `assistant/tests.py` —
+    aqui só confirma que o webhook parseia e delega certo, e que um
+    payload inesperado nunca derruba o endpoint."""
+
+    def test_delegates_to_assistant_engine(self, client, church_config):
+        instancia = WhatsAppInstance.objects.create(church=church_config, name="X", webhook_secret="correct-secret")
+        payload = {
+            "event": "messages.upsert",
+            "data": {
+                "key": {"fromMe": False, "remoteJid": "5562911110001@s.whatsapp.net"},
+                "message": {"conversation": "Oi, quero atualizar meu cadastro"},
+            },
+        }
+        with patch("assistant.engine.processar_mensagem_recebida") as mock_processar:
+            response = client.post(
+                "/mensagens/webhook/evolution/", data=json.dumps(payload), content_type="application/json",
+                HTTP_X_WEBHOOK_SECRET="correct-secret",
+            )
+        assert response.status_code == 200
+        assert mock_processar.called
+        kwargs = mock_processar.call_args.kwargs
+        assert kwargs["church"] == church_config
+        assert kwargs["instance"] == instancia
+        assert kwargs["phone"] == "5562911110001"
+        assert kwargs["texto"] == "Oi, quero atualizar meu cadastro"
+
+    def test_ignores_messages_sent_by_the_church_itself(self, client, church_config):
+        WhatsAppInstance.objects.create(church=church_config, name="X", webhook_secret="correct-secret")
+        payload = {
+            "event": "messages.upsert",
+            "data": {
+                "key": {"fromMe": True, "remoteJid": "5562911110001@s.whatsapp.net"},
+                "message": {"conversation": "Oi"},
+            },
+        }
+        with patch("assistant.engine.processar_mensagem_recebida") as mock_processar:
+            response = client.post(
+                "/mensagens/webhook/evolution/", data=json.dumps(payload), content_type="application/json",
+                HTTP_X_WEBHOOK_SECRET="correct-secret",
+            )
+        assert response.status_code == 200
+        assert not mock_processar.called
+
+    def test_ignores_group_messages(self, client, church_config):
+        WhatsAppInstance.objects.create(church=church_config, name="X", webhook_secret="correct-secret")
+        payload = {
+            "event": "messages.upsert",
+            "data": {"key": {"fromMe": False, "remoteJid": "12345-6789@g.us"}, "message": {"conversation": "Oi grupo"}},
+        }
+        with patch("assistant.engine.processar_mensagem_recebida") as mock_processar:
+            response = client.post(
+                "/mensagens/webhook/evolution/", data=json.dumps(payload), content_type="application/json",
+                HTTP_X_WEBHOOK_SECRET="correct-secret",
+            )
+        assert response.status_code == 200
+        assert not mock_processar.called
+
+    def test_malformed_payload_never_500s(self, client, church_config):
+        WhatsAppInstance.objects.create(church=church_config, name="X", webhook_secret="correct-secret")
+        payload = {"event": "messages.upsert", "data": "isso não devia ser uma string"}
+        response = client.post(
+            "/mensagens/webhook/evolution/", data=json.dumps(payload), content_type="application/json",
+            HTTP_X_WEBHOOK_SECRET="correct-secret",
+        )
+        assert response.status_code == 200
+
 
 @pytest.mark.django_db
 class TestPushSubscribe:

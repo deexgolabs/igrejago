@@ -673,6 +673,10 @@ class WhatsAppWebhookView(View):
         except Exception:
             return HttpResponse(status=400)
 
+        if payload.get("event") == "messages.upsert":
+            self._processar_mensagem_recebida(config, instance, payload)
+            return HttpResponse(status=200)
+
         data = payload.get("data", {})
         # Confirmado contra um servidor Evolution real (v2.3.7): o evento
         # `messages.update` manda `data.keyId`/`data.status` DIRETO, sem
@@ -700,6 +704,36 @@ class WhatsAppWebhookView(View):
         else:
             updated.update(delivery_status=delivery_status)
         return HttpResponse(status=200)
+
+    @staticmethod
+    def _processar_mensagem_recebida(config, instance, payload):
+        """Evento `messages.upsert` (Baileys/Evolution) — mensagem que o
+        CONTATO mandou pra igreja, não confirmação de status. Formato
+        nunca confirmado ao vivo neste projeto (mesma ressalva de
+        `core.whatsapp.criar_instancia`) — por isso o `try/except` amplo
+        aqui, diferente do resto desta view (que usa early-return): um
+        formato de payload inesperado nunca pode derrubar o webhook."""
+        try:
+            data = payload.get("data", {})
+            key = data.get("key", {})
+            if key.get("fromMe"):
+                return  # a própria igreja mandando pelo app do celular — nunca vira mensagem "do contato"
+            remote_jid = key.get("remoteJid", "")
+            if remote_jid.endswith("@g.us"):
+                return  # grupo — fora de escopo do assistente por enquanto
+            phone = remote_jid.split("@")[0]
+            message = data.get("message", {})
+            texto = message.get("conversation") or message.get("extendedTextMessage", {}).get("text", "")
+            if not phone or not texto:
+                return
+
+            from assistant.engine import processar_mensagem_recebida
+            from core.tenant_context import tenant_context
+
+            with tenant_context(config):
+                processar_mensagem_recebida(church=config, instance=instance, phone=phone, texto=texto, raw=payload)
+        except Exception:
+            logger.exception("Falha ao processar mensagem recebida via webhook Evolution")
 
 
 # Vocabulário de status de MENSAGEM da própria Meta ("sent" é ignorado —
@@ -770,6 +804,7 @@ class MetaWhatsAppWebhookView(View):
                     valor = change.get("value", {})
                     if campo == "messages":
                         self._processar_status_mensagem(valor)
+                        self._processar_mensagem_recebida(valor)
                     elif campo == "message_template_status_update":
                         self._processar_status_template(valor)
         except Exception:
@@ -797,6 +832,31 @@ class MetaWhatsAppWebhookView(View):
                 updated.update(delivery_status=delivery_status, read_at=now)
             else:
                 updated.update(delivery_status=delivery_status)
+
+    @staticmethod
+    def _processar_mensagem_recebida(valor):
+        """`value.messages[]` — mensagem que o CONTATO mandou, nunca lido
+        antes (só `value.statuses[]`, confirmação de entrega). Só texto
+        no v1 (`msg["type"] == "text"`) — imagem/áudio/documento ficam
+        fora de escopo por enquanto. Já roda dentro do `try/except`
+        amplo de `post()` — sem guard próprio aqui."""
+        phone_number_id = valor.get("metadata", {}).get("phone_number_id", "")
+        config = Church.objects.filter(whatsapp_meta_phone_number_id=phone_number_id).first() if phone_number_id else None
+        if config is None:
+            return
+
+        from assistant.engine import processar_mensagem_recebida
+        from core.tenant_context import tenant_context
+
+        for msg in valor.get("messages", []):
+            if msg.get("type") != "text":
+                continue
+            phone = msg.get("from", "")
+            texto = msg.get("text", {}).get("body", "")
+            if not phone or not texto:
+                continue
+            with tenant_context(config):
+                processar_mensagem_recebida(church=config, instance=None, phone=phone, texto=texto, raw=valor)
 
     @staticmethod
     def _processar_status_template(valor):

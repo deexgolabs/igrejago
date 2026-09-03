@@ -5,7 +5,7 @@ from django.contrib.auth.forms import PasswordResetForm
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.utils.crypto import get_random_string
 from django.views.generic import (
     CreateView,
@@ -19,8 +19,10 @@ from django.views.generic import (
 
 from accounts.mixins import CanManagePeopleMixin, IsChurchManagerMixin
 from accounts.models import User
+from assistant.models import PersonUpdateLink
+from core import whatsapp
 from core.billing import pode_adicionar_pessoa
-from core.models import WebhookSubscription
+from core.models import Church, WebhookSubscription
 from core.ratelimit import RateLimitMixin
 from core.tenancy import PublicChurchMixin, TenantFormMixin
 from core.webhooks import disparar_webhook
@@ -163,6 +165,30 @@ class PersonUpdateRoleView(IsChurchManagerMixin, View):
             messages.success(request, f"Cargo de acesso de {person.full_name} atualizado.")
         else:
             messages.error(request, "Cargo inválido.")
+        return redirect("people:detail", pk=pk)
+
+
+class PersonSendUpdateLinkView(CanManagePeopleMixin, View):
+    """Manda (ou reaproveita) um link pessoal de atualização cadastral
+    por WhatsApp — `assistant.PersonUpdateFormView`, mesma fila de
+    aprovação (`PersonDraft`) do assistente de IA. Envio direto (fora
+    da fila `WhatsAppMessage`) — é uma ação pontual do staff, não campanha."""
+
+    def post(self, request, pk):
+        person = get_object_or_404(Person, pk=pk)
+        link, _ = PersonUpdateLink.objects.get_or_create(
+            person=person, defaults={"church": request.church, "created_by": request.user},
+        )
+        url = request.build_absolute_uri(reverse("assistant:person_update_form", args=[link.token]))
+        texto = f"Oi, {person.full_name}! Pra manter seu cadastro atualizado, acessa: {url}"
+        instancia = WhatsAppInstance.padrao() if request.church.whatsapp_provider == Church.WhatsAppProvider.EVOLUTION else None
+        ok, motivo, _ = whatsapp.enviar_whatsapp(
+            person.whatsapp_number, texto, church_config=request.church, instance=instancia
+        )
+        if ok:
+            messages.success(request, "Link de atualização enviado por WhatsApp.")
+        else:
+            messages.error(request, f"Falha ao enviar: {motivo}")
         return redirect("people:detail", pk=pk)
 
 

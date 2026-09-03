@@ -290,6 +290,30 @@ ao vivo, mesma ressalva já dada pro resto da integração Meta (envio,
 templates). Se o formato real vier diferente, ajuste
 `notifications/views.py::MetaWhatsAppWebhookView`.
 
+### 5.2.2. Assistente de IA no WhatsApp
+
+Novo app `assistant/` — menu de atendimento (1. atualizar cadastro /
+2. falar com a secretaria / 3. pergunta livre) e coleta de cadastro com
+fila de aprovação (`/assistente/cadastros-pendentes/`), sem NENHUMA
+credencial de plataforma nova: cada igreja traz a própria chave de IA
+(Gemini ou ChatGPT) em Configurações, mesmo padrão de Mercado Pago/PagBank.
+
+**Gotcha real pra quem já tinha número(s) Evolution conectado(s) antes
+desta rodada**: `criar_instancia`/`configurar_webhook`
+(`core/whatsapp.py`) agora inscrevem o webhook em `MESSAGES_UPDATE` E
+`MESSAGES_UPSERT` (mensagem recebida) — mas isso só se aplica a
+instâncias criadas/reconfiguradas DEPOIS do deploy. Uma instância que
+já estava conectada continua inscrita só em `MESSAGES_UPDATE` até
+alguém clicar em "Ver QR code" de novo nela (Django admin,
+`/admin/notifications/whatsappinstance/<id>/change/` — o botão chama
+`configurar_webhook` de novo, reconfigurando o evento sem desconectar
+o número). Sem isso, o assistente de IA simplesmente não recebe
+mensagem nenhuma pra essa instância — nenhum erro visível, só silêncio.
+Vale reconfigurar toda instância já conectada em produção depois deste
+deploy, mesmo quem não for usar o assistente agora (não tem custo:
+sem `Church.ia_chat_enabled` marcado, a mensagem recebida só é
+registrada e ignorada — ver `assistant.engine.processar_mensagem_recebida`).
+
 ### 5.3. Cobrança automática de assinatura (Fase 4)
 
 Diferente do Mercado Pago de CADA igreja (`Church.mercadopago_access_token`,

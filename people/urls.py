@@ -17,6 +17,7 @@ from people.views import (
     PersonImportTemplateView,
     PersonImportView,
     PersonListView,
+    PersonSendUpdateLinkView,
     PersonUpdateRoleView,
     PersonUpdateView,
     PipelineBoardView,
@@ -52,4 +53,5 @@ urlpatterns = [
     path("<int:pk>/excluir/", PersonDeleteView.as_view(), name="delete"),
     path("<int:pk>/criar-acesso/", PersonCreateAccessView.as_view(), name="create_access"),
     path("<int:pk>/atualizar-acesso/", PersonUpdateRoleView.as_view(), name="update_role"),
+    path("<int:pk>/enviar-link-atualizacao/", PersonSendUpdateLinkView.as_view(), name="send_update_link"),
 ]

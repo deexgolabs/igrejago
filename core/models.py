@@ -101,6 +101,10 @@ class Church(models.Model):
         EVOLUTION = "EVOLUTION", "Evolution API"
         META_CLOUD = "META_CLOUD", "API oficial da Meta (WhatsApp Cloud API)"
 
+    class IAProvider(models.TextChoices):
+        GEMINI = "GEMINI", "Google Gemini"
+        CHATGPT = "CHATGPT", "ChatGPT (OpenAI)"
+
     name = models.CharField("Nome da igreja", max_length=150)
     slug = models.SlugField("Slug", max_length=170, unique=True, blank=True)
     pastor_name = models.CharField("Nome do pastor", max_length=150, blank=True)
@@ -163,6 +167,24 @@ class Church(models.Model):
         "Token do PagBank", max_length=200, blank=True,
         help_text="Gerado no painel de desenvolvedor do PagBank (developer.pagbank.com.br) — segundo gateway "
                    "de pagamento, independente do Mercado Pago (dá pra ter os dois configurados ao mesmo tempo).",
+    )
+    ia_provider = models.CharField(
+        "Provedor de IA", max_length=10, choices=IAProvider.choices, blank=True,
+        help_text="Quem responde no assistente de WhatsApp (menu opção 3) — Google Gemini ou ChatGPT (OpenAI).",
+    )
+    ia_api_key = models.CharField(
+        "Chave da API de IA", max_length=200, blank=True,
+        help_text="Gerada no painel do provedor escolhido acima (Google AI Studio ou platform.openai.com) — "
+                   "cada igreja usa a própria chave, mesmo espírito do Mercado Pago/PagBank.",
+    )
+    ia_knowledge_base = models.TextField(
+        "Base de conhecimento do assistente", blank=True,
+        help_text="Texto livre (horários de culto, endereço, ministérios, perguntas frequentes...) que o "
+                   "assistente usa como contexto pra responder no WhatsApp.",
+    )
+    ia_chat_enabled = models.BooleanField(
+        "Assistente de WhatsApp ativo", default=False,
+        help_text="Liga/desliga o atendimento automático sem apagar a chave/base de conhecimento salvas.",
     )
     android_package_name = models.CharField(
         "Nome do pacote Android", max_length=150, blank=True,
@@ -316,6 +338,10 @@ class Church(models.Model):
     @property
     def pagbank_configured(self):
         return bool(self.pagbank_token)
+
+    @property
+    def ia_configured(self):
+        return bool(self.ia_provider and self.ia_api_key)
 
     @property
     def whatsapp_api_configured(self):
