@@ -304,10 +304,14 @@ desta rodada**: `criar_instancia`/`configurar_webhook`
 `MESSAGES_UPSERT` (mensagem recebida) — mas isso só se aplica a
 instâncias criadas/reconfiguradas DEPOIS do deploy. Uma instância que
 já estava conectada continua inscrita só em `MESSAGES_UPDATE` até
-alguém clicar em "Ver QR code" de novo nela (Django admin,
-`/admin/notifications/whatsappinstance/<id>/change/` — o botão chama
-`configurar_webhook` de novo, reconfigurando o evento sem desconectar
-o número). Sem isso, o assistente de IA simplesmente não recebe
+alguém clicar em **"Criar/recriar instância"** de novo nela (Django
+admin, `/admin/notifications/whatsappinstance/<id>/change/` — **não**
+"Ver QR code": esse só busca o QR em si, `GET /instance/connect/`, e
+não toca no webhook; numa instância já conectada nem devolve QR
+nenhum, só o status. "Criar/recriar instância" é que, ao esbarrar no
+403 "already in use" de uma instância que já existe, cai no fallback e
+chama `configurar_webhook` de novo — reconfigura o evento SEM
+desconectar o número). Sem isso, o assistente de IA simplesmente não recebe
 mensagem nenhuma pra essa instância — nenhum erro visível, só silêncio.
 Vale reconfigurar toda instância já conectada em produção depois deste
 deploy, mesmo quem não for usar o assistente agora (não tem custo:

@@ -156,6 +156,28 @@ class TestEngineColeta:
         assert "role" in draft.data  # o motor não filtra de novo — a allow-list é responsabilidade de `ai`/aprovação
         assert draft.status == PersonDraft.Status.PENDING
 
+    def test_menu_word_escapes_coleta_without_calling_ai(self, church):
+        # Achado testando de verdade: sem o escape global em `_despachar`,
+        # digitar "menu" no meio da coleta ia direto pra `ai.extrair_dados_cadastro`
+        # (e cada resposta virava "Não consegui entender agora" pra sempre).
+        self._ate_coleta(church)
+        with patch("assistant.ai.extrair_dados_cadastro") as mock_extrair:
+            mock_send = _receber(church, "menu")
+        assert not mock_extrair.called
+        assert "1 —" in mock_send.call_args[0][1]
+        conversation = Conversation.objects.get(church=church, phone=PHONE)
+        assert conversation.state == Conversation.State.MENU
+
+    def test_menu_word_escapes_aguardando_confirmacao(self, church):
+        self._ate_coleta(church)
+        with patch("assistant.ai.extrair_dados_cadastro", return_value={"full_name": "Maria"}):
+            _receber(church, "Maria")
+        mock_send = _receber(church, "menu")
+        assert "1 —" in mock_send.call_args[0][1]
+        conversation = Conversation.objects.get(church=church, phone=PHONE)
+        assert conversation.state == Conversation.State.MENU
+        assert PersonDraft.objects.count() == 0
+
 
 @pytest.mark.django_db
 class TestEngineIALivre:

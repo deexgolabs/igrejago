@@ -25,7 +25,7 @@ import requests
 
 from assistant.models import PERSON_DRAFT_ALLOWED_FIELDS
 
-GEMINI_MODEL = "gemini-2.0-flash"
+GEMINI_MODEL = "gemini-3.6-flash"
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 OPENAI_MODEL = "gpt-4o-mini"
 OPENAI_API_BASE = "https://api.openai.com/v1/chat/completions"

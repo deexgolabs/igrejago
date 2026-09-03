@@ -81,6 +81,18 @@ def processar_mensagem_recebida(*, church, instance, phone, texto, raw):
 
 
 def _despachar(church, conversation, texto):
+    # Escape global — digitar "menu"/"0" sempre volta pro início, em
+    # QUALQUER estado (achado testando de verdade: sem isso, alguém
+    # preso em COLETANDO_CADASTRO/AGUARDANDO_CONFIRMACAO não tinha
+    # como sair só digitando "menu"/"2", já que cada handler só tratava
+    # o próprio vocabulário — "2" em COLETANDO_CADASTRO, por exemplo,
+    # ia direto pra extração de IA em vez de mudar de estado).
+    normalizado = texto.strip().lower().rstrip(".")
+    if normalizado in ("menu", "0") and conversation.state != Conversation.State.MENU:
+        conversation.state = Conversation.State.MENU
+        conversation.state_data = {}
+        return _texto_menu(church)
+
     handlers = {
         Conversation.State.MENU: _tratar_menu,
         Conversation.State.COLETANDO_CADASTRO: _tratar_coleta,
@@ -161,9 +173,8 @@ def _tratar_confirmacao(church, conversation, texto):
 
 
 def _tratar_ia_livre(church, conversation, texto):
-    if texto.strip().lower() in ("menu", "0"):
-        conversation.state = Conversation.State.MENU
-        return _texto_menu(church)
+    # "menu"/"0" já são tratados globalmente em `_despachar` antes de
+    # chegar aqui — não precisa repetir.
     if not ratelimit.ia_call_permitida(church, conversation.phone):
         return _MSG_LIMITE
     try:
@@ -174,10 +185,10 @@ def _tratar_ia_livre(church, conversation, texto):
 
 
 def _tratar_aguardando_humano(church, conversation, texto):
-    if texto.strip().lower() in ("menu", "0"):
-        conversation.state = Conversation.State.MENU
-        return _texto_menu(church)
-    return None  # bot fica quieto — secretaria responde por fora, manualmente
+    # "menu"/"0" já tratados globalmente em `_despachar` — chegando
+    # aqui é qualquer OUTRA coisa, e o bot fica quieto de propósito:
+    # secretaria responde por fora, manualmente.
+    return None
 
 
 def _responder(church, instance, conversation, texto_resposta):
