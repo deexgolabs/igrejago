@@ -21,6 +21,7 @@ from notifications.views import (
     WhatsAppConnectionView,
     WhatsAppConnectView,
     WhatsAppDisconnectView,
+    WhatsAppMetaConfigView,
     WhatsAppWebhookView,
 )
 
@@ -52,5 +53,6 @@ urlpatterns = [
     path("whatsapp/reenviar-confirmacao/", ResendConfirmationEmailView.as_view(), name="resend_confirmation"),
     path("whatsapp/conectar/", WhatsAppConnectView.as_view(), name="whatsapp_connect"),
     path("whatsapp/desconectar/", WhatsAppDisconnectView.as_view(), name="whatsapp_disconnect"),
+    path("whatsapp/canal/", WhatsAppMetaConfigView.as_view(), name="whatsapp_meta_config"),
     path("webhook/evolution/", WhatsAppWebhookView.as_view(), name="webhook"),
 ]

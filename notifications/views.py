@@ -18,7 +18,7 @@ from core.billing import whatsapp_liberado
 from core.models import Church
 from core.tenancy import TenantFormMixin
 from core.views import enviar_email_confirmacao
-from notifications.forms import MessageTemplateForm, ScheduledMessageForm
+from notifications.forms import MessageTemplateForm, ScheduledMessageForm, WhatsAppProviderForm
 from notifications.models import EmailMessage, MessageTemplate, PushSubscription, SMSMessage, WhatsAppMessage
 
 logger = logging.getLogger(__name__)
@@ -218,12 +218,17 @@ class MessageTemplateDeleteView(IsChurchManagerMixin, DeleteView):
 
 def _connection_context(request, **extra):
     """Estado da tela de Conectar/Desconectar — a igreja nunca vê URL,
-    chave ou nome de instância aqui (isso é config do dono, só no Django
-    admin); só se está configurado, conectado ou não, e o QR code quando
-    acabou de ser gerado."""
+    chave ou nome de instância da Evolution aqui (isso é config do
+    dono, só no Django admin); só se está configurado, conectado ou
+    não, e o QR code quando acabou de ser gerado. Provider-aware desde
+    a Meta Cloud API: Evolution tem um passo de "conectar" de verdade
+    (QR/pareamento), checado ao vivo; Meta não tem — lá "conectado" é
+    só "as credenciais estão preenchidas", sem chamada extra."""
     config = request.church
     connected = None
-    if config.whatsapp_api_configured:
+    if config.whatsapp_provider == Church.WhatsAppProvider.META_CLOUD:
+        connected = True if config.whatsapp_api_configured else None
+    elif config.whatsapp_api_configured:
         try:
             data = whatsapp.obter_status_conexao(config)
             estado = data.get("state") or data.get("instance", {}).get("state") or ""
@@ -234,6 +239,9 @@ def _connection_context(request, **extra):
         "configured": config.whatsapp_api_configured, "connected": connected,
         "email_confirmed": config.email_confirmed,
         "whatsapp_liberado": whatsapp_liberado(config),
+        "provider": config.whatsapp_provider,
+        "is_meta_cloud": config.whatsapp_provider == Church.WhatsAppProvider.META_CLOUD,
+        "provider_form": WhatsAppProviderForm(instance=config),
     }
     context.update(extra)
     return context
@@ -285,6 +293,9 @@ class WhatsAppConnectView(IsChurchManagerMixin, View):
 
     def post(self, request):
         config = request.church
+        if config.whatsapp_provider == Church.WhatsAppProvider.META_CLOUD:
+            messages.error(request, "O canal atual é a API oficial da Meta — não tem QR code, só preencher as credenciais acima.")
+            return render(request, WhatsAppConnectionView.template_name, _connection_context(request))
         if not config.email_confirmed:
             messages.error(
                 request,
@@ -323,6 +334,23 @@ class WhatsAppConnectView(IsChurchManagerMixin, View):
         return render(
             request, WhatsAppConnectionView.template_name, _connection_context(request, img_src=img_src)
         )
+
+
+class WhatsAppMetaConfigView(IsChurchManagerMixin, View):
+    """Salva a escolha de canal (Evolution × API oficial da Meta) +
+    credenciais da Meta, direto na tela de Conectar WhatsApp — trocar
+    pra Evolution não apaga o que já estava preenchido da Meta (e
+    vice-versa), só muda qual delas `Church.whatsapp_api_configured`/
+    `core.whatsapp.enviar_whatsapp` usam pra valer."""
+
+    def post(self, request):
+        form = WhatsAppProviderForm(request.POST, instance=request.church)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Canal de WhatsApp atualizado.")
+        else:
+            messages.error(request, "Não deu pra salvar — confira os campos.")
+        return redirect("notifications:whatsapp_connection")
 
 
 class ResendConfirmationEmailView(IsChurchManagerMixin, View):

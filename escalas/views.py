@@ -138,7 +138,10 @@ class EscalaCreateView(CanManagePeopleMixin, View):
             escala = form.save(commit=False)
             escala.church = request.church
             escala.save()
-            _sync_voluntarios(request, escala, form.cleaned_data["voluntarios"], _roles_from_post(request))
+            _sync_voluntarios(
+                request, escala, form.cleaned_data["voluntarios"], _roles_from_post(request),
+                scheduled_for=form.cleaned_data.get("scheduled_for"),
+            )
             messages.success(request, "Escala criada.")
             return redirect("escalas:detail", pk=escala.pk)
         return render(request, self.template_name, {"form": form, "roles_json": "{}"})
@@ -157,7 +160,10 @@ class EscalaUpdateView(CanManagePeopleMixin, View):
         form = EscalaForm(request.POST, instance=escala, user=request.user)
         if form.is_valid():
             escala = form.save()
-            _sync_voluntarios(request, escala, form.cleaned_data["voluntarios"], _roles_from_post(request))
+            _sync_voluntarios(
+                request, escala, form.cleaned_data["voluntarios"], _roles_from_post(request),
+                scheduled_for=form.cleaned_data.get("scheduled_for"),
+            )
             messages.success(request, "Escala atualizada.")
             return redirect("escalas:detail", pk=escala.pk)
         return render(request, self.template_name, {"form": form, "object": escala, "roles_json": _roles_json(escala)})
@@ -266,12 +272,31 @@ class ServiceOrderItemRemoveView(CanManagePeopleMixin, View):
         return redirect("escalas:detail", pk=escala.pk)
 
 
-def _sync_voluntarios(request, escala, pessoas, roles=None):
+def _mensagem_escala(church_config, pessoa, escala, role, url):
+    """Texto de "você foi escalado(a)" — usa
+    `Church.whatsapp_escala_template` (editável em Configurações),
+    reaproveitado tanto pelo aviso original (`_sync_voluntarios`) quanto
+    por quem assume uma troca (`AceitarTrocaView`). `{horario}`/`{funcao}`
+    já chegam formatados (com a palavra de ligação) ou em branco, pra
+    o texto ler bem nos dois casos sem o próprio template precisar
+    tratar isso."""
+    horario = f" às {escala.time.strftime('%H:%M')}" if escala.time else ""
+    funcao = f" como {role}" if role else ""
+    return church_config.whatsapp_escala_template.format(
+        nome=pessoa.full_name, departamento=escala.department.name,
+        data=f"{escala.date:%d/%m}", horario=horario, funcao=funcao, link=url,
+    )
+
+
+def _sync_voluntarios(request, escala, pessoas, roles=None, scheduled_for=None):
     """Cria `EscalaVoluntario` pra quem foi adicionado agora (avisando por
     WhatsApp — nunca chama `enviar_whatsapp()` direto, sempre enfileira,
     mesmo padrão do resto do projeto) e remove quem foi desmarcado. Quem já
     estava e continua marcado não é tocado (não reenvia aviso à toa) — só a
-    `role` é atualizada nesse caso, se mudou, sem reenviar WhatsApp."""
+    `role` é atualizada nesse caso, se mudou, sem reenviar WhatsApp.
+    `scheduled_for`: em branco, mesmo comportamento de sempre (fila manda
+    assim que processar); preenchido, o aviso só sai a partir dessa data/
+    hora (`WhatsAppMessage.scheduled_for`, mesmo mecanismo de sempre)."""
     roles = roles or {}
     existentes = {ev.person_id: ev for ev in escala.voluntarios.all()}
     selecionados_ids = {p.pk for p in pessoas}
@@ -287,14 +312,10 @@ def _sync_voluntarios(request, escala, pessoas, roles=None):
             continue
         ev = EscalaVoluntario.objects.create(church=request.church, escala=escala, person=pessoa, role=role)
         url = request.build_absolute_uri(reverse("escalas:confirmar", args=[ev.confirm_token]))
-        horario = f" às {escala.time.strftime('%H:%M')}" if escala.time else ""
-        texto = (
-            f"Você foi escalado(a) para {escala.department.name} — {escala.date:%d/%m}{horario}. "
-            f"Confirma presença? {url}"
-        )
+        texto = _mensagem_escala(request.church, pessoa, escala, role, url)
         novas_mensagens.append(WhatsAppMessage(
             church=request.church, person=pessoa, phone=pessoa.whatsapp_number, message=texto,
-            campaign_label=f"Escala-{escala.pk}",
+            campaign_label=f"Escala-{escala.pk}", scheduled_for=scheduled_for,
         ))
 
     for pessoa_id, ev in existentes.items():
@@ -426,13 +447,9 @@ class AceitarTrocaView(View):
 
         confirm_url = request.build_absolute_uri(reverse("escalas:confirmar", args=[voluntario.confirm_token]))
         escala = voluntario.escala
-        horario = f" às {escala.time.strftime('%H:%M')}" if escala.time else ""
+        texto = _mensagem_escala(troca.church, aceitante, escala, voluntario.role, confirm_url)
         WhatsAppMessage.objects.create(
-            church=troca.church, person=aceitante, phone=aceitante.whatsapp_number,
-            message=(
-                f"Você assumiu a escala de {escala.department.name} — {escala.date:%d/%m}{horario}. "
-                f"Confirma presença? {confirm_url}"
-            ),
+            church=troca.church, person=aceitante, phone=aceitante.whatsapp_number, message=texto,
             campaign_label=f"Troca de escala-{troca.pk}",
         )
         return render(request, self.template_name, {"troca": troca, "aceita_agora": True})

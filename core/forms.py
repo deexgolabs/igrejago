@@ -21,7 +21,7 @@ class ChurchConfigForm(forms.ModelForm):
         model = Church
         fields = [
             "name", "pastor_name", "logo", "brand_color",
-            "whatsapp_absence_template", "whatsapp_birthday_template",
+            "whatsapp_absence_template", "whatsapp_birthday_template", "whatsapp_escala_template",
             "whatsapp_send_interval_seconds", "whatsapp_batch_size", "whatsapp_max_retries",
             "admin_alert_emails",
             "pix_key", "pix_key_type", "pix_receiver_name", "pix_receiver_city",
@@ -31,6 +31,7 @@ class ChurchConfigForm(forms.ModelForm):
             "brand_color": forms.TextInput(attrs={"type": "color"}),
             "whatsapp_absence_template": forms.Textarea(attrs={"rows": 3}),
             "whatsapp_birthday_template": forms.Textarea(attrs={"rows": 3}),
+            "whatsapp_escala_template": forms.Textarea(attrs={"rows": 3}),
         }
 
 

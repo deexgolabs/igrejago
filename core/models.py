@@ -97,6 +97,10 @@ class Church(models.Model):
         BASICO = "basico", "Básico"
         PRO = "pro", "Pro"
 
+    class WhatsAppProvider(models.TextChoices):
+        EVOLUTION = "EVOLUTION", "Evolution API"
+        META_CLOUD = "META_CLOUD", "API oficial da Meta (WhatsApp Cloud API)"
+
     name = models.CharField("Nome da igreja", max_length=150)
     slug = models.SlugField("Slug", max_length=170, unique=True, blank=True)
     pastor_name = models.CharField("Nome do pastor", max_length=150, blank=True)
@@ -166,6 +170,21 @@ class Church(models.Model):
         "Chave da instância", max_length=200, blank=True,
         help_text="Preenchida automaticamente ao criar a instância pelo admin.",
     )
+
+    whatsapp_provider = models.CharField(
+        "Canal de WhatsApp", max_length=20, choices=WhatsAppProvider.choices, default=WhatsAppProvider.EVOLUTION,
+        help_text="Evolution API (padrão, QR code) ou a API oficial da Meta — configurável na tela "
+                   "de Conectar WhatsApp. Trocar aqui não apaga a configuração do outro canal.",
+    )
+    whatsapp_meta_phone_number_id = models.CharField(
+        "Phone Number ID (Meta Cloud API)", max_length=100, blank=True,
+        help_text="Do painel de desenvolvedor da Meta (developers.facebook.com) — infraestrutura da "
+                   "própria igreja, não desta plataforma.",
+    )
+    whatsapp_meta_access_token = models.CharField(
+        "Access Token (Meta Cloud API)", max_length=500, blank=True,
+        help_text="Token permanente gerado no painel de desenvolvedor da Meta pra essa aplicação.",
+    )
     whatsapp_send_interval_seconds = models.PositiveIntegerField(
         "Intervalo entre envios (segundos)", default=6,
         help_text="Espera entre uma mensagem e outra ao processar a fila — mandar tudo de uma vez é o "
@@ -191,6 +210,14 @@ class Church(models.Model):
         "Modelo de mensagem — aniversário",
         default="Feliz aniversário, {nome}! 🎉 Que Deus continue te abençoando. Um abraço, {pastor}.",
         help_text="Use {nome} e {pastor} como marcadores.",
+    )
+    whatsapp_escala_template = models.TextField(
+        "Modelo de mensagem — escala",
+        default="Olá {nome}! Você foi escalado(a) para {departamento}{funcao} — {data}{horario}. "
+                "Confirma presença? {link}",
+        help_text="Use {nome}, {departamento}, {data}, {horario}, {funcao} e {link} como marcadores — "
+                   "{horario} e {funcao} já vêm formatados (\" às 19:00\", \" como Vocal\") ou em branco "
+                   "quando não se aplicam, sem precisar tratar isso no texto.",
     )
 
     admin_alert_emails = models.CharField(
@@ -277,6 +304,12 @@ class Church(models.Model):
 
     @property
     def whatsapp_api_configured(self):
+        """Único ponto que a fila/tela de conexão checam pra saber "dá
+        pra mandar de verdade" — provider-aware desde a Meta Cloud API:
+        o resto do código nunca precisa saber QUAL canal está ativo,
+        só se está configurado."""
+        if self.whatsapp_provider == self.WhatsAppProvider.META_CLOUD:
+            return bool(self.whatsapp_meta_phone_number_id and self.whatsapp_meta_access_token)
         return bool(settings.EVOLUTION_API_URL and self.whatsapp_instance and self.whatsapp_send_key)
 
     @property

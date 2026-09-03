@@ -54,6 +54,76 @@ class TestWhatsAppConsoleFallback:
 
 
 @pytest.mark.django_db
+class TestWhatsAppProviderDispatch:
+    def test_default_provider_is_evolution(self, church_config):
+        from core.models import Church
+        assert church_config.whatsapp_provider == Church.WhatsAppProvider.EVOLUTION
+
+    def test_meta_cloud_without_credentials_falls_back_to_console(self, church_config, capsys):
+        from core.models import Church
+
+        church_config.whatsapp_provider = Church.WhatsAppProvider.META_CLOUD
+        church_config.save()
+        ok, error, external_id = enviar_whatsapp("62999998888", "Oi", church_config=church_config)
+        assert ok is True
+        assert "Meta Cloud" in capsys.readouterr().out
+
+    def test_meta_cloud_configured_calls_graph_api(self, church_config):
+        from unittest.mock import MagicMock, patch
+
+        from core.models import Church
+
+        church_config.whatsapp_provider = Church.WhatsAppProvider.META_CLOUD
+        church_config.whatsapp_meta_phone_number_id = "123456"
+        church_config.whatsapp_meta_access_token = "token-abc"
+        church_config.save()
+
+        fake_response = MagicMock()
+        fake_response.raise_for_status.return_value = None
+        fake_response.json.return_value = {"messages": [{"id": "wamid.XYZ"}]}
+        with patch("core.whatsapp.requests.post", return_value=fake_response) as mock_post:
+            ok, error, external_id = enviar_whatsapp("62999998888", "Oi", church_config=church_config)
+
+        assert ok is True
+        assert external_id == "wamid.XYZ"
+        args, kwargs = mock_post.call_args
+        assert "123456/messages" in args[0]
+        assert kwargs["headers"]["Authorization"] == "Bearer token-abc"
+
+    def test_meta_cloud_24h_window_error_gets_clear_message(self, church_config):
+        from unittest.mock import MagicMock, patch
+
+        import requests
+
+        from core.models import Church
+
+        church_config.whatsapp_provider = Church.WhatsAppProvider.META_CLOUD
+        church_config.whatsapp_meta_phone_number_id = "123456"
+        church_config.whatsapp_meta_access_token = "token-abc"
+        church_config.save()
+
+        fake_response = MagicMock()
+        fake_response.json.return_value = {"error": {"message": "message outside 24 hour window, use a template"}}
+        http_error = requests.HTTPError(response=fake_response)
+        fake_send = MagicMock()
+        fake_send.raise_for_status.side_effect = http_error
+        with patch("core.whatsapp.requests.post", return_value=fake_send):
+            ok, error, external_id = enviar_whatsapp("62999998888", "Oi", church_config=church_config)
+
+        assert ok is False
+        assert "template" in error.lower()
+
+    def test_whatsapp_api_configured_is_provider_aware(self, church_config):
+        from core.models import Church
+
+        church_config.whatsapp_provider = Church.WhatsAppProvider.META_CLOUD
+        assert church_config.whatsapp_api_configured is False
+        church_config.whatsapp_meta_phone_number_id = "123"
+        church_config.whatsapp_meta_access_token = "abc"
+        assert church_config.whatsapp_api_configured is True
+
+
+@pytest.mark.django_db
 class TestWhatsAppWebhookPayloadShape:
     """`enabled: true` é exigido pela Evolution API — confirmado ao vivo
     (400 Bad Request sem ele em `/webhook/set/`, aceito sem em
@@ -357,6 +427,7 @@ class TestSettingsView:
             "brand_color": "#ff0000",
             "whatsapp_absence_template": "Oi {nome}, sentimos falta. {pastor}",
             "whatsapp_birthday_template": "Feliz niver {nome}! {pastor}",
+            "whatsapp_escala_template": "Escalado {nome} em {departamento}{funcao}{horario}. {link}",
             "whatsapp_send_interval_seconds": "10",
             "whatsapp_batch_size": "20",
             "whatsapp_max_retries": "5",
@@ -372,6 +443,7 @@ class TestSettingsView:
         response = pastor_client.post("/configuracoes/", {
             "name": "Igreja Nova", "pastor_name": "", "brand_color": "#2563eb",
             "whatsapp_absence_template": "Oi {nome}", "whatsapp_birthday_template": "Niver {nome}",
+            "whatsapp_escala_template": "Escalado {nome} em {departamento}{funcao}{horario}. {link}",
             "whatsapp_send_interval_seconds": "6", "whatsapp_batch_size": "30", "whatsapp_max_retries": "3",
             "admin_alert_emails": "dono@example.com, secretaria@example.com",
             "pix_key_type": "",
@@ -390,6 +462,7 @@ class TestSettingsView:
             "brand_color": "#ff0000",
             "whatsapp_absence_template": "Oi {nome}",
             "whatsapp_birthday_template": "Niver {nome}",
+            "whatsapp_escala_template": "Escalado {nome} em {departamento}{funcao}{horario}. {link}",
             "whatsapp_send_interval_seconds": "10",
             "whatsapp_batch_size": "20",
             "whatsapp_max_retries": "5",

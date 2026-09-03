@@ -461,3 +461,78 @@ class TestPlanejamentoDeCulto:
         assert response.status_code == 200
         assert b"Reckless Love" in response.content
         assert b"Abertura" in response.content
+
+
+@pytest.mark.django_db
+class TestMensagemDeEscala:
+    def test_message_includes_role_and_name(self, pastor_client, person, church):
+        """Regressão: a função (ex.: Vocal) não aparecia na mensagem de
+        WhatsApp da escala, apesar de já ser capturada em EscalaVoluntario.role."""
+        department = Department.objects.create(church=church, name="Louvor")
+        pastor_client.post("/escalas/nova/", {
+            "department": department.pk, "date": "2026-09-06", "time": "19:00", "title": "",
+            "voluntarios": [person.pk], f"role_{person.pk}": "Vocal",
+        })
+        mensagem = WhatsAppMessage.objects.get()
+        assert person.full_name in mensagem.message
+        assert "Vocal" in mensagem.message
+
+    def test_message_reads_well_without_role_or_time(self, pastor_client, person, church):
+        department = Department.objects.create(church=church, name="Louvor")
+        pastor_client.post("/escalas/nova/", {
+            "department": department.pk, "date": "2026-09-06", "time": "", "title": "",
+            "voluntarios": [person.pk],
+        })
+        mensagem = WhatsAppMessage.objects.get().message
+        assert "  " not in mensagem  # sem espaço duplo por causa de função/horário vazios
+        assert "às" not in mensagem
+        assert "como" not in mensagem
+
+    def test_custom_template_is_respected(self, pastor_client, person, church):
+        church.whatsapp_escala_template = "Oi {nome}, escalado em {departamento}{funcao}{horario}!"
+        church.save()
+        department = Department.objects.create(church=church, name="Louvor")
+        pastor_client.post("/escalas/nova/", {
+            "department": department.pk, "date": "2026-09-06", "time": "19:00", "title": "",
+            "voluntarios": [person.pk], f"role_{person.pk}": "Bateria",
+        })
+        mensagem = WhatsAppMessage.objects.get().message
+        assert mensagem.startswith(f"Oi {person.full_name}, escalado em Louvor como Bateria às 19:00!")
+
+    def test_scheduled_for_is_saved_on_message(self, pastor_client, person, church):
+        from django.utils import timezone as tz
+
+        department = Department.objects.create(church=church, name="Louvor")
+        pastor_client.post("/escalas/nova/", {
+            "department": department.pk, "date": "2026-09-06", "time": "", "title": "",
+            "voluntarios": [person.pk], "scheduled_for": "2026-09-05T08:00",
+        })
+        mensagem = WhatsAppMessage.objects.get()
+        assert mensagem.scheduled_for is not None
+        # `USE_TZ=True` grava em UTC — reconverte pro fuso local antes de
+        # comparar com a hora digitada no formulário (horário de Brasília).
+        assert tz.localtime(mensagem.scheduled_for).hour == 8
+
+    def test_blank_schedule_sends_immediately_as_before(self, pastor_client, person, church):
+        department = Department.objects.create(church=church, name="Louvor")
+        pastor_client.post("/escalas/nova/", {
+            "department": department.pk, "date": "2026-09-06", "time": "", "title": "",
+            "voluntarios": [person.pk],
+        })
+        mensagem = WhatsAppMessage.objects.get()
+        assert mensagem.scheduled_for is None
+
+    def test_swap_acceptance_message_includes_role(self, client, church):
+        department = Department.objects.create(church=church, name="Louvor")
+        escala = Escala.objects.create(church=church, department=department, date="2026-09-06")
+        titular = Person.objects.create(church=church, full_name="Titular", phone="62911110000", department=department)
+        colega = Person.objects.create(church=church, full_name="Colega", phone="62922220000", department=department)
+        voluntario = EscalaVoluntario.objects.create(
+            church=church, escala=escala, person=titular, status=EscalaVoluntario.Status.CONFIRMED, role="Baixo",
+        )
+        troca = TrocaEscala.objects.create(church=church, escala_voluntario=voluntario)
+
+        client.post(f"/escalas/trocar/{troca.token}/", {"person_id": colega.pk})
+        mensagem = WhatsAppMessage.objects.filter(person=colega).latest("created_at")
+        assert "Baixo" in mensagem.message
+        assert colega.full_name in mensagem.message

@@ -7,12 +7,22 @@ from people.models import Department, Person
 
 DATE_INPUT = forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d")
 TIME_INPUT = forms.TimeInput(attrs={"type": "time"})
+DATETIME_INPUT = forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M")
 
 
 class EscalaForm(forms.ModelForm):
     voluntarios = forms.ModelMultipleChoiceField(
         label="Voluntários", queryset=Person.objects.none(), required=False,
         widget=forms.CheckboxSelectMultiple(),
+    )
+    # Não é campo do model — só controla QUANDO o aviso de WhatsApp sai
+    # (repassado pra `_sync_voluntarios`/`WhatsAppMessage.scheduled_for`,
+    # mesmo padrão de `notifications.forms.ScheduledMessageForm`). Em
+    # branco = comportamento de sempre, envia assim que a fila rodar.
+    scheduled_for = forms.DateTimeField(
+        label="Agendar envio do aviso (opcional)", required=False, widget=DATETIME_INPUT,
+        input_formats=["%Y-%m-%dT%H:%M"],
+        help_text="Em branco, o aviso de WhatsApp sai assim que a fila processar (padrão).",
     )
 
     class Meta:

@@ -1,33 +1,46 @@
-"""Envio de WhatsApp via Evolution API (gateway open-source, self-hosted,
-que conecta a um número real por QR code — sem aprovação de conta
-comercial da Meta) e gestão da instância (criar, obter QR code, checar
-status). Mesmo formato de API já usado no crm-odonto para o envio; a parte
-de gestão de instância é nova aqui. Sem `ChurchConfig.whatsapp_api_configured`,
-o envio cai no fallback de imprimir no console — a fila continua
-funcionando (e testável) sem nenhuma credencial real."""
+"""Envio de WhatsApp — dois canais possíveis por igreja
+(`Church.whatsapp_provider`): Evolution API (gateway open-source,
+self-hosted, conecta por QR code — sem aprovação de conta comercial da
+Meta) ou a API oficial da Meta (WhatsApp Cloud API — texto livre só
+funciona dentro de 24h da última mensagem que o CONTATO mandou pra
+igreja; fora disso a Meta exige um template pré-aprovado por ela, que
+este projeto ainda não suporta — ver `_enviar_via_meta_cloud`). Sem
+`Church.whatsapp_api_configured`, o envio cai no fallback de imprimir
+no console — a fila continua funcionando (e testável) sem nenhuma
+credencial real, nos dois canais."""
 
 import logging
 import sys
 
 import requests
 
+from core.models import Church
+
 logger = logging.getLogger(__name__)
 
 
 def enviar_whatsapp(phone, message, *, church_config):
-    """Envia UMA mensagem agora. Devolve (True, "", external_id) em
-    sucesso ou (False, "motivo", "") em falha — quem processa a fila
-    (`processar_fila_whatsapp`) usa o motivo pra preencher
-    `WhatsAppMessage.error_message` e o `external_id` (o id da mensagem
-    devolvido pela Evolution API) pra depois casar com o evento de
-    confirmação de entrega que chegar no webhook. Não aplica nenhum
-    intervalo/espera aqui — isso é responsabilidade de quem chama em
-    loop, pra manter esta função simples e testável isoladamente."""
+    """Envia UMA mensagem agora, pelo canal configurado nesta igreja.
+    Devolve (True, "", external_id) em sucesso ou (False, "motivo", "")
+    em falha — quem processa a fila (`processar_fila_whatsapp`) usa o
+    motivo pra preencher `WhatsAppMessage.error_message` e o
+    `external_id` (o id da mensagem devolvido pela API) pra depois casar
+    com o evento de confirmação de entrega que chegar no webhook (hoje
+    só implementado pra Evolution — ver `WhatsAppWebhookView`). Não
+    aplica nenhum intervalo/espera aqui — isso é responsabilidade de
+    quem chama em loop, pra manter esta função simples e testável
+    isoladamente."""
     if not phone:
         return False, "Sem telefone", ""
 
+    if church_config.whatsapp_provider == Church.WhatsAppProvider.META_CLOUD:
+        return _enviar_via_meta_cloud(phone, message, church_config=church_config)
+    return _enviar_via_evolution(phone, message, church_config=church_config)
+
+
+def _enviar_via_evolution(phone, message, *, church_config):
     if not church_config.whatsapp_api_configured:
-        _print_safe(f"[WhatsApp — console fallback] Para {phone}: {message}")
+        _print_safe(f"[WhatsApp Evolution — console fallback] Para {phone}: {message}")
         return True, "", ""
 
     try:
@@ -43,6 +56,49 @@ def enviar_whatsapp(phone, message, *, church_config):
         return True, "", external_id
     except Exception as exc:
         logger.exception("Falha ao enviar WhatsApp para %s via Evolution API", phone)
+        return False, str(exc)[:255], ""
+
+
+def _enviar_via_meta_cloud(phone, message, *, church_config):
+    """WhatsApp Cloud API oficial da Meta — `phone`/`token` são da
+    PRÓPRIA igreja (painel de desenvolvedor da Meta), não infraestrutura
+    desta plataforma. Texto livre (`type: text`) só é aceito pela Meta
+    dentro da janela de 24h da última mensagem que o CONTATO mandou —
+    fora disso, ela recusa com um erro específico (código 131047 ou
+    mensagem citando "template"), tratado aqui pra devolver um motivo
+    compreensível em vez da exceção HTTP crua."""
+    if not church_config.whatsapp_api_configured:
+        _print_safe(f"[WhatsApp Meta Cloud — console fallback] Para {phone}: {message}")
+        return True, "", ""
+
+    try:
+        response = requests.post(
+            f"https://graph.facebook.com/v20.0/{church_config.whatsapp_meta_phone_number_id}/messages",
+            json={"messaging_product": "whatsapp", "to": phone, "type": "text", "text": {"body": message}},
+            headers={"Authorization": f"Bearer {church_config.whatsapp_meta_access_token}"},
+            timeout=15,
+        )
+        response.raise_for_status()
+        data = response.json()
+        external_id = data.get("messages", [{}])[0].get("id", "") if isinstance(data, dict) else ""
+        return True, "", external_id
+    except requests.HTTPError as exc:
+        detalhe = str(exc)
+        try:
+            erro_meta = exc.response.json().get("error", {}).get("message", "")
+        except Exception:
+            erro_meta = ""
+        if "template" in erro_meta.lower() or "24" in erro_meta:
+            detalhe = (
+                "A Meta recusou texto livre fora da janela de 24h da última mensagem do contato — "
+                "fora dessa janela ela exige um template pré-aprovado, ainda não suportado aqui."
+            )
+        elif erro_meta:
+            detalhe = erro_meta
+        logger.exception("Falha ao enviar WhatsApp para %s via Meta Cloud API", phone)
+        return False, detalhe[:255], ""
+    except Exception as exc:
+        logger.exception("Falha ao enviar WhatsApp para %s via Meta Cloud API", phone)
         return False, str(exc)[:255], ""
 
 
