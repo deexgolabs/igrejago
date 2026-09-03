@@ -10,25 +10,108 @@
 </p>
 {% endif %}
 
-<form method="post" class="form-padrao bg-white border border-slate-200 rounded-xl p-6 max-w-lg space-y-3">
-    {% csrf_token %}
-    {% for field in form %}
-    <p>
-        <label class="block text-xs font-semibold text-slate-500 mb-1">{{ field.label }}</label>
-        {{ field }}
-        {% if field.help_text %}<span class="text-xs text-slate-400">{{ field.help_text }}</span>{% endif %}
-        {% if field.errors %}<p class="text-xs text-red-600 mt-1">{{ field.errors|striptags }}</p>{% endif %}
-    </p>
-    {% endfor %}
-    <div class="flex gap-2 pt-2">
-        <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm rounded-lg px-4 py-2">Salvar rascunho</button>
-        <a href="{% url 'notifications:whatsapp_meta_templates' %}" class="text-sm text-slate-500 hover:text-slate-800 px-4 py-2">Cancelar</a>
+<div class="flex flex-col lg:flex-row gap-6 items-start">
+    <form method="post" class="form-padrao bg-white border border-slate-200 rounded-xl p-6 max-w-lg w-full space-y-3">
+        {% csrf_token %}
+        {% for field in form %}
+            {% if field.name == "button1_type" %}
+            <div class="pt-3 border-t border-slate-100">
+                <p class="text-xs font-semibold text-slate-600 mb-2">
+                    Botões (opcional) — todos de Resposta rápida OU até 2 de Link/Ligar, nunca misturados.
+                </p>
+            </div>
+            {% elif field.name == "button2_type" or field.name == "button3_type" %}
+            <div class="pt-2"></div>
+            {% endif %}
+        <p>
+            <label class="block text-xs font-semibold text-slate-500 mb-1">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}<span class="text-xs text-slate-400">{{ field.help_text }}</span>{% endif %}
+            {% if field.errors %}<p class="text-xs text-red-600 mt-1">{{ field.errors|striptags }}</p>{% endif %}
+        </p>
+        {% endfor %}
+        {% if form.non_field_errors %}
+        <p class="text-xs text-red-600">{{ form.non_field_errors|striptags }}</p>
+        {% endif %}
+        <div class="flex gap-2 pt-2">
+            <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm rounded-lg px-4 py-2">Salvar rascunho</button>
+            <a href="{% url 'notifications:whatsapp_meta_templates' %}" class="text-sm text-slate-500 hover:text-slate-800 px-4 py-2">Cancelar</a>
+        </div>
+    </form>
+
+    <div class="w-full max-w-xs mx-auto lg:mx-0 lg:sticky lg:top-6">
+        <p class="text-xs font-semibold text-slate-500 mb-2">Como fica no WhatsApp (aproximado)</p>
+        <div class="rounded-xl overflow-hidden border border-slate-200" style="background:#e5ddd5;">
+            <div class="p-4">
+                <div class="bg-white rounded-lg rounded-tl-none shadow-sm p-3 text-sm text-slate-800">
+                    <p id="preview-header" class="font-bold mb-1 hidden"></p>
+                    <p id="preview-body" class="whitespace-pre-wrap"></p>
+                    <p id="preview-footer" class="text-xs text-slate-400 mt-1 hidden"></p>
+                    <p class="text-[10px] text-slate-300 text-right mt-1">12:00</p>
+                </div>
+                <div id="preview-buttons" class="mt-1 bg-white rounded-lg shadow-sm overflow-hidden divide-y divide-slate-100"></div>
+            </div>
+        </div>
+        <p class="text-xs text-slate-400 mt-2">
+            As variáveis ({% templatetag openvariable %}1{% templatetag closevariable %},
+            {% templatetag openvariable %}2{% templatetag closevariable %}...) aparecem aqui como
+            "[exemplo]" — no envio real, cada uma vira o valor de verdade.
+        </p>
     </div>
-</form>
+</div>
 
 <style>
 .form-padrao input[type="text"], .form-padrao select, .form-padrao textarea {
     width: 100%; border: 1px solid #d1d5db; border-radius: 0.5rem; padding: 0.4rem 0.65rem; font-size: 0.875rem;
 }
 </style>
+
+<script>
+(function () {
+    function porExemplo(texto) {
+        return (texto || "").replace(/\{\{\s*\d+\s*\}\}/g, "[exemplo]");
+    }
+    function valor(id) {
+        var el = document.getElementById(id);
+        return el ? el.value : "";
+    }
+    var ICONE = {QUICK_REPLY: "↩", URL: "🔗", PHONE_NUMBER: "📞"};
+
+    function atualizar() {
+        var header = valor("id_header_text");
+        var body = valor("id_body_text");
+        var footer = valor("id_footer_text");
+
+        var elHeader = document.getElementById("preview-header");
+        elHeader.textContent = header;
+        elHeader.classList.toggle("hidden", !header);
+
+        document.getElementById("preview-body").textContent = porExemplo(body) || "Sua mensagem aparece aqui...";
+
+        var elFooter = document.getElementById("preview-footer");
+        elFooter.textContent = footer;
+        elFooter.classList.toggle("hidden", !footer);
+
+        var wrap = document.getElementById("preview-buttons");
+        wrap.innerHTML = "";
+        [1, 2, 3].forEach(function (i) {
+            var tipo = valor("id_button" + i + "_type");
+            var texto = valor("id_button" + i + "_text");
+            if (!tipo || !texto) return;
+            var row = document.createElement("div");
+            row.className = "text-center text-brand-600 text-sm py-2";
+            row.textContent = (ICONE[tipo] || "") + " " + texto;
+            wrap.appendChild(row);
+        });
+    }
+
+    ["id_header_text", "id_body_text", "id_footer_text",
+     "id_button1_type", "id_button1_text", "id_button2_type", "id_button2_text",
+     "id_button3_type", "id_button3_text"].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) { el.addEventListener("input", atualizar); el.addEventListener("change", atualizar); }
+    });
+    atualizar();
+})();
+</script>
 {% endblock %}

@@ -251,6 +251,11 @@ class WhatsAppMetaTemplate(TenantModel):
                    "diferente do {nome} usado nos templates locais de WhatsApp/e-mail.",
     )
     footer_text = models.CharField("Rodapé (opcional)", max_length=60, blank=True)
+    buttons = models.JSONField(
+        "Botões", default=list, blank=True,
+        help_text="Até 3 botões — TODOS de resposta rápida OU até 2 de link/telefone, nunca "
+                   "misturados (regra da própria Meta). Montado pelo formulário, não digitado direto.",
+    )
 
     status = models.CharField("Status", max_length=10, choices=Status.choices, default=Status.DRAFT)
     meta_template_id = models.CharField(
@@ -277,13 +282,15 @@ class WhatsAppMetaTemplate(TenantModel):
     def montar_components(self):
         """Monta a lista `components` no formato que a Business
         Management API da Meta espera — sempre um `BODY`, `HEADER`/
-        `FOOTER` só se preenchidos."""
+        `FOOTER`/`BUTTONS` só se preenchidos."""
         components = []
         if self.header_text:
             components.append({"type": "HEADER", "format": "TEXT", "text": self.header_text})
         components.append({"type": "BODY", "text": self.body_text})
         if self.footer_text:
             components.append({"type": "FOOTER", "text": self.footer_text})
+        if self.buttons:
+            components.append({"type": "BUTTONS", "buttons": self.buttons})
         return components
 
 

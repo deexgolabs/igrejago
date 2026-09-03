@@ -24,11 +24,93 @@ class WhatsAppProviderForm(forms.ModelForm):
         ]
 
 
+BUTTON_TYPE_CHOICES = [
+    ("", "— nenhum —"),
+    ("QUICK_REPLY", "Resposta rápida (ex.: \"Confirmar presença\")"),
+    ("URL", "Abrir link"),
+    ("PHONE_NUMBER", "Ligar"),
+]
+
+
 class WhatsAppMetaTemplateForm(forms.ModelForm):
+    """Os 3 botões não são campos do model (que guarda tudo já montado em
+    `buttons`, um JSON) — são 3 conjuntos de campos soltos (tipo/texto/
+    valor), reunidos em `clean()`. Evita depender de JS pra formulário
+    dinâmico (nem toda "resposta rápida" tem link/telefone, e vice-versa)
+    — 3 é o limite prático da própria Meta pra um template (resposta
+    rápida) ou o suficiente pra 1-2 botões de link/telefone."""
+
+    button1_type = forms.ChoiceField(label="Botão 1", choices=BUTTON_TYPE_CHOICES, required=False)
+    button1_text = forms.CharField(label="Texto do botão 1", max_length=25, required=False)
+    button1_value = forms.CharField(
+        label="Link ou telefone do botão 1", max_length=2000, required=False,
+        help_text="Preencha só para \"Abrir link\" (https://...) ou \"Ligar\" (com DDI, ex.: 5562999998888).",
+    )
+    button2_type = forms.ChoiceField(label="Botão 2", choices=BUTTON_TYPE_CHOICES, required=False)
+    button2_text = forms.CharField(label="Texto do botão 2", max_length=25, required=False)
+    button2_value = forms.CharField(label="Link ou telefone do botão 2", max_length=2000, required=False)
+    button3_type = forms.ChoiceField(label="Botão 3", choices=BUTTON_TYPE_CHOICES, required=False)
+    button3_text = forms.CharField(label="Texto do botão 3", max_length=25, required=False)
+    button3_value = forms.CharField(label="Link ou telefone do botão 3", max_length=2000, required=False)
+
     class Meta:
         model = WhatsAppMetaTemplate
         fields = ["name", "language", "category", "header_text", "body_text", "footer_text"]
         widgets = {"body_text": forms.Textarea(attrs={"rows": 4})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance.pk:
+            for i, botao in enumerate(self.instance.buttons[:3], start=1):
+                self.fields[f"button{i}_type"].initial = botao.get("type", "")
+                self.fields[f"button{i}_text"].initial = botao.get("text", "")
+                self.fields[f"button{i}_value"].initial = botao.get("url") or botao.get("phone_number", "")
+
+    def clean(self):
+        cleaned = super().clean()
+        botoes = []
+        qtd_resposta_rapida = 0
+        qtd_cta = 0
+        for i in range(1, 4):
+            tipo = cleaned.get(f"button{i}_type")
+            texto = (cleaned.get(f"button{i}_text") or "").strip()
+            valor = (cleaned.get(f"button{i}_value") or "").strip()
+            if not tipo:
+                continue
+            if not texto:
+                self.add_error(f"button{i}_text", "Informe o texto do botão.")
+                continue
+            if tipo == "QUICK_REPLY":
+                qtd_resposta_rapida += 1
+                botoes.append({"type": "QUICK_REPLY", "text": texto})
+            elif tipo == "URL":
+                qtd_cta += 1
+                if not valor:
+                    self.add_error(f"button{i}_value", "Informe o link (https://...).")
+                    continue
+                botoes.append({"type": "URL", "text": texto, "url": valor})
+            elif tipo == "PHONE_NUMBER":
+                qtd_cta += 1
+                if not valor:
+                    self.add_error(f"button{i}_value", "Informe o telefone (com DDI, ex.: 5562999998888).")
+                    continue
+                botoes.append({"type": "PHONE_NUMBER", "text": texto, "phone_number": valor})
+        if qtd_resposta_rapida and qtd_cta:
+            raise forms.ValidationError(
+                "A Meta não permite misturar botão de Resposta rápida com Link/Ligar no mesmo template — "
+                "escolha um tipo só para todos os botões."
+            )
+        if qtd_cta > 2:
+            raise forms.ValidationError("No máximo 2 botões de Link/Ligar juntos.")
+        cleaned["_buttons"] = botoes
+        return cleaned
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        instance.buttons = self.cleaned_data.get("_buttons", [])
+        if commit:
+            instance.save()
+        return instance
 
 
 class ScheduledMessageForm(forms.Form):

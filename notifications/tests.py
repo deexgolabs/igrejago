@@ -859,6 +859,77 @@ class TestWhatsAppMetaTemplateCRUD:
 
 
 @pytest.mark.django_db
+class TestWhatsAppMetaTemplateButtons:
+    BASE_PAYLOAD = {
+        "name": "com_botoes", "language": "pt_BR", "category": "utility",
+        "header_text": "", "body_text": "Olá {{1}}.", "footer_text": "",
+    }
+
+    def test_create_with_quick_reply_button(self, pastor_client):
+        payload = dict(self.BASE_PAYLOAD, button1_type="QUICK_REPLY", button1_text="Confirmar presença")
+        response = pastor_client.post("/mensagens/whatsapp/templates/novo/", payload)
+        assert response.status_code == 302
+        template = WhatsAppMetaTemplate.objects.get(name="com_botoes")
+        assert template.buttons == [{"type": "QUICK_REPLY", "text": "Confirmar presença"}]
+
+    def test_create_with_url_button(self, pastor_client):
+        payload = dict(
+            self.BASE_PAYLOAD, button1_type="URL", button1_text="Ver escala",
+            button1_value="https://exemplo.com/escala",
+        )
+        response = pastor_client.post("/mensagens/whatsapp/templates/novo/", payload)
+        assert response.status_code == 302
+        template = WhatsAppMetaTemplate.objects.get(name="com_botoes")
+        assert template.buttons == [
+            {"type": "URL", "text": "Ver escala", "url": "https://exemplo.com/escala"}
+        ]
+
+    def test_url_button_without_link_shows_error(self, pastor_client):
+        payload = dict(self.BASE_PAYLOAD, button1_type="URL", button1_text="Ver escala", button1_value="")
+        response = pastor_client.post("/mensagens/whatsapp/templates/novo/", payload)
+        assert response.status_code == 200
+        assert not WhatsAppMetaTemplate.objects.filter(name="com_botoes").exists()
+
+    def test_cannot_mix_quick_reply_with_url_button(self, pastor_client):
+        payload = dict(
+            self.BASE_PAYLOAD,
+            button1_type="QUICK_REPLY", button1_text="Sim",
+            button2_type="URL", button2_text="Ver escala", button2_value="https://exemplo.com",
+        )
+        response = pastor_client.post("/mensagens/whatsapp/templates/novo/", payload)
+        assert response.status_code == 200
+        assert not WhatsAppMetaTemplate.objects.filter(name="com_botoes").exists()
+
+    def test_no_buttons_still_works(self, pastor_client):
+        response = pastor_client.post("/mensagens/whatsapp/templates/novo/", dict(self.BASE_PAYLOAD))
+        assert response.status_code == 302
+        template = WhatsAppMetaTemplate.objects.get(name="com_botoes")
+        assert template.buttons == []
+
+    def test_montar_components_includes_buttons_when_present(self, church):
+        template = WhatsAppMetaTemplate.objects.create(
+            church=church, name="com_botoes", body_text="Olá {{1}}.",
+            buttons=[{"type": "QUICK_REPLY", "text": "Confirmar"}],
+        )
+        components = template.montar_components()
+        assert {"type": "BUTTONS", "buttons": [{"type": "QUICK_REPLY", "text": "Confirmar"}]} in components
+
+    def test_montar_components_omits_buttons_when_empty(self, church):
+        template = WhatsAppMetaTemplate.objects.create(church=church, name="sem_botoes", body_text="x")
+        assert not any(c["type"] == "BUTTONS" for c in template.montar_components())
+
+    def test_editing_preserves_buttons_as_initial_values(self, pastor_client, church):
+        template = WhatsAppMetaTemplate.objects.create(
+            church=church, name="rascunho", body_text="x",
+            buttons=[{"type": "URL", "text": "Ver escala", "url": "https://exemplo.com"}],
+        )
+        response = pastor_client.get(f"/mensagens/whatsapp/templates/{template.pk}/editar/")
+        assert response.status_code == 200
+        assert b"Ver escala" in response.content
+        assert b"https://exemplo.com" in response.content
+
+
+@pytest.mark.django_db
 class TestWhatsAppMetaTemplateSubmitAndStatus:
     def test_submit_without_waba_credentials_shows_error(self, pastor_client, church):
         template = WhatsAppMetaTemplate.objects.create(church=church, name="rascunho", body_text="x")
