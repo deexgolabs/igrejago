@@ -1,7 +1,7 @@
 from django import forms
 
 from core.models import Church
-from notifications.models import MessageTemplate, WhatsAppMetaTemplate
+from notifications.models import MessageTemplate, WhatsAppInstance, WhatsAppMetaTemplate
 from people.models import Person
 
 DATETIME_INPUT = forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M")
@@ -22,6 +22,24 @@ class WhatsAppProviderForm(forms.ModelForm):
             "whatsapp_meta_access_token",
             "whatsapp_meta_business_account_id",
         ]
+
+
+class WhatsAppInstanceCreateForm(forms.ModelForm):
+    """Só o nome — é tudo que o "Adicionar número" pede na tela de conexão.
+    `send_interval_seconds`/`batch_size`/`max_retries` nascem com o default
+    do model (6s/30/3) e se ajustam depois em "Editar" (`WhatsAppInstanceForm`,
+    abaixo) — exigir os 3 já na criação faria esse POST simples (só `name`)
+    falhar a validação sem avisar por quê (achado testando o fluxo real)."""
+
+    class Meta:
+        model = WhatsAppInstance
+        fields = ["name"]
+
+
+class WhatsAppInstanceForm(forms.ModelForm):
+    class Meta:
+        model = WhatsAppInstance
+        fields = ["name", "send_interval_seconds", "batch_size", "max_retries"]
 
 
 BUTTON_TYPE_CHOICES = [
@@ -126,6 +144,10 @@ class ScheduledMessageForm(forms.Form):
         help_text="Preencha se a mensagem não é para alguém já cadastrado.",
     )
     message = forms.CharField(label="Mensagem", widget=forms.Textarea(attrs={"rows": 4}), required=False)
+    instance = forms.ModelChoiceField(
+        label="Enviar por (WhatsApp)", queryset=WhatsAppInstance.objects.none(), required=False,
+        help_text="Só aparece quando o canal é a Evolution API — em branco, usa a instância padrão da igreja.",
+    )
     meta_template = forms.ModelChoiceField(
         label="Ou usar template aprovado da Meta (opcional)",
         queryset=WhatsAppMetaTemplate.objects.none(), required=False,
@@ -162,6 +184,11 @@ class ScheduledMessageForm(forms.Form):
         self.fields["meta_template"].queryset = WhatsAppMetaTemplate.objects.filter(
             status=WhatsAppMetaTemplate.Status.APPROVED
         )
+        instances = WhatsAppInstance.objects.all()
+        self.fields["instance"].queryset = instances
+        instancia_padrao = instances.filter(is_default=True).first()
+        if instancia_padrao:
+            self.fields["instance"].initial = instancia_padrao.pk
 
     def clean(self):
         cleaned = super().clean()

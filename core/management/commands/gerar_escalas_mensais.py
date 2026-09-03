@@ -28,7 +28,7 @@ from django.urls import reverse
 from core.models import Church
 from core.tenant_context import tenant_context
 from escalas.models import Escala, EscalaVoluntario, IndisponibilidadeVoluntario
-from notifications.models import WhatsAppMessage
+from notifications.models import WhatsAppInstance, WhatsAppMessage
 from people.models import Department, Person
 
 
@@ -74,6 +74,7 @@ class Command(BaseCommand):
         domingos = self._domingos_do_mes(ano, mes)
         escalas_criadas = sem_voluntario = 0
         mensagens = []
+        instancia_padrao = WhatsAppInstance.padrao()
 
         for department in Department.objects.all():
             voluntarios = list(Person.objects.filter(department=department).order_by("full_name"))
@@ -113,6 +114,7 @@ class Command(BaseCommand):
                     )
                     mensagens.append(WhatsAppMessage(
                         church=church_config, person=pessoa, phone=pessoa.whatsapp_number, message=texto,
+                        instance=instancia_padrao,
                         campaign_label=f"Escala-{escala.pk}",
                     ))
 

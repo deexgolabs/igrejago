@@ -175,17 +175,19 @@ class Church(models.Model):
                    "validar o app na Play Store (Digital Asset Links).",
     )
 
-    # Instância desta igreja no servidor Evolution API COMPARTILHADO da
-    # plataforma (URL/chave global do servidor em si vêm de
-    # settings.EVOLUTION_API_URL/EVOLUTION_API_KEY, não daqui — ver
-    # docstring da classe). `whatsapp_instance` é gerado sozinho a partir
-    # do slug no save(), não digitado.
-    whatsapp_instance = models.CharField("Nome da instância", max_length=100, blank=True)
-    whatsapp_instance_token = models.CharField(
-        "Chave da instância", max_length=200, blank=True,
-        help_text="Preenchida automaticamente ao criar a instância pelo admin.",
+    # A instância Evolution em si (nome/token no servidor compartilhado)
+    # morava aqui até essa igreja poder ter só UM número — agora vive em
+    # `notifications.WhatsAppInstance` (uma linha por número), pra dar
+    # pra conectar mais de um (ex.: "WhatsApp da igreja" + "WhatsApp do
+    # pastor"), cada um com o próprio intervalo/lote/tentativas.
+    # `whatsapp_max_instancias` é o único controle que continua aqui —
+    # ajuste manual por igreja (mesmo espírito de `status`/`plano`/
+    # `trial_expira_em`, sem regra fixa de plano por enquanto).
+    whatsapp_max_instancias = models.PositiveIntegerField(
+        "Limite de números de WhatsApp (Evolution)", default=1,
+        help_text="Quantas instâncias Evolution API essa igreja pode conectar ao mesmo tempo — ajuste "
+                   "manual, sem regra fixa de plano ainda.",
     )
-
     whatsapp_provider = models.CharField(
         "Canal de WhatsApp", max_length=20, choices=WhatsAppProvider.choices, default=WhatsAppProvider.EVOLUTION,
         help_text="Evolution API (padrão, QR code) ou a API oficial da Meta — configurável na tela "
@@ -206,26 +208,21 @@ class Church(models.Model):
         help_text="Do painel de desenvolvedor da Meta — necessário só pra gerenciar templates de "
                    "mensagem (criar/enviar pra aprovação), não pra mandar mensagem avulsa.",
     )
+    # Ritmo de envio do canal Meta Cloud (um número só por igreja, sem
+    # conceito de instância — Evolution tem o próprio intervalo/lote/
+    # tentativas EM CADA `WhatsAppInstance`, não aqui).
     whatsapp_send_interval_seconds = models.PositiveIntegerField(
-        "Intervalo entre envios (segundos)", default=6,
-        help_text="Espera entre uma mensagem e outra ao processar a fila — mandar tudo de uma vez é o "
-                   "jeito mais rápido do WhatsApp marcar o número como spam. 5-10s é um valor seguro.",
+        "Intervalo entre envios — Meta Cloud (segundos)", default=6,
+        help_text="Só vale pro canal oficial da Meta — no Evolution, cada número conectado tem o "
+                   "próprio intervalo (editável na tela de Conectar WhatsApp).",
     )
     whatsapp_batch_size = models.PositiveIntegerField(
-        "Mensagens por execução da fila", default=30,
-        help_text="Limite de mensagens enviadas em uma única chamada do comando "
-                   "processar_fila_whatsapp — o resto fica pra próxima execução do cron.",
+        "Mensagens por execução da fila — Meta Cloud", default=30,
+        help_text="Só vale pro canal oficial da Meta — mesmo motivo do campo acima.",
     )
     whatsapp_max_retries = models.PositiveIntegerField(
-        "Tentativas antes de desistir", default=3,
-        help_text="Quantas vezes o processador da fila tenta reenviar uma mensagem que falhou "
-                   "antes de parar de tentar sozinho (ainda dá pra reenviar manualmente depois).",
-    )
-    whatsapp_webhook_secret = models.CharField(
-        "Segredo do webhook", max_length=100, blank=True,
-        help_text="A Evolution API não assina os webhooks — esse valor é conferido no cabeçalho "
-                   "X-Webhook-Secret pra confirmar que a chamada é legítima. Configure o mesmo valor "
-                   "no painel da sua instância Evolution.",
+        "Tentativas antes de desistir — Meta Cloud", default=3,
+        help_text="Só vale pro canal oficial da Meta — mesmo motivo do campo acima.",
     )
     whatsapp_birthday_template = models.TextField(
         "Modelo de mensagem — aniversário",
@@ -245,11 +242,6 @@ class Church(models.Model):
         "E-mails de alerta administrativo", max_length=500, blank=True,
         help_text="Um ou mais e-mails separados por vírgula — avisados se o WhatsApp desconectar sozinho, "
                    "por exemplo. Deixe em branco pra não avisar ninguém.",
-    )
-    whatsapp_disconnect_alert_sent = models.BooleanField(
-        "Já avisou sobre desconexão atual", default=False,
-        help_text="Controle interno de `verificar_conexao_whatsapp` — evita mandar um e-mail novo a cada "
-                   "execução do cron enquanto a mesma queda continua; zera sozinho quando reconectar.",
     )
 
     matriz = models.ForeignKey(
@@ -287,8 +279,6 @@ class Church(models.Model):
     def save(self, *args, **kwargs):
         if not self.slug:
             self.slug = self._gerar_slug_unico()
-        if not self.whatsapp_instance:
-            self.whatsapp_instance = f"igreja-{self.slug}"
         super().save(*args, **kwargs)
 
     def _gerar_slug_unico(self):
@@ -332,10 +322,15 @@ class Church(models.Model):
         """Único ponto que a fila/tela de conexão checam pra saber "dá
         pra mandar de verdade" — provider-aware desde a Meta Cloud API:
         o resto do código nunca precisa saber QUAL canal está ativo,
-        só se está configurado."""
+        só se está configurado. Evolution: basta EXISTIR pelo menos uma
+        `WhatsAppInstance` conectada (o envio de verdade escolhe QUAL
+        instância separadamente — isso aqui é só "dá pra mandar por
+        esse canal, de alguma forma")."""
         if self.whatsapp_provider == self.WhatsAppProvider.META_CLOUD:
             return bool(self.whatsapp_meta_phone_number_id and self.whatsapp_meta_access_token)
-        return bool(settings.EVOLUTION_API_URL and self.whatsapp_instance and self.whatsapp_send_key)
+        from notifications.models import WhatsAppInstance
+
+        return bool(settings.EVOLUTION_API_URL) and WhatsAppInstance.todas_as_igrejas.filter(church=self).exists()
 
     @property
     def whatsapp_meta_templates_configured(self):
@@ -344,26 +339,6 @@ class Church(models.Model):
         mensagem avulsa não — uma igreja configurada só pra enviar não
         pode ficar bloqueada por não ter preenchido isso."""
         return bool(self.whatsapp_meta_business_account_id and self.whatsapp_meta_access_token)
-
-    @property
-    def whatsapp_api_url(self):
-        """URL do servidor Evolution compartilhado — vem de settings, não
-        é mais um campo por igreja (ver docstring da classe)."""
-        return settings.EVOLUTION_API_URL
-
-    @property
-    def whatsapp_api_key(self):
-        """Chave GLOBAL (admin) do servidor Evolution compartilhado — só
-        usada pra CRIAR a instância desta igreja; envio/status usam
-        `whatsapp_send_key` (a chave da própria instância)."""
-        return settings.EVOLUTION_API_KEY
-
-    @property
-    def whatsapp_send_key(self):
-        """A chave usada pra ENVIAR mensagem/checar status de uma instância
-        já conectada — a da instância, se existir, senão cai pra chave
-        global da plataforma."""
-        return self.whatsapp_instance_token or settings.EVOLUTION_API_KEY
 
 
 class ShortLink(TenantModel):

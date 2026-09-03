@@ -24,7 +24,7 @@ from events import mercadopago, pagbank
 from events.forms import EventForm, PublicRegistrationForm
 from events.models import Event, Registration
 from events.pix import build_pix_payload
-from notifications.models import WhatsAppMessage
+from notifications.models import WhatsAppInstance, WhatsAppMessage
 from notifications.views import normalize_phone
 
 logger = logging.getLogger(__name__)
@@ -418,6 +418,7 @@ class RegistrationPromoteView(IsChurchManagerMixin, View):
             WhatsAppMessage.objects.create(
                 church=registration.church,
                 person=registration.person, phone=normalize_phone(registration.phone), message=text,
+                instance=WhatsAppInstance.padrao(),
                 campaign_label=f"Promoção de lista de espera — {registration.event.title}",
                 created_by=request.user,
             )

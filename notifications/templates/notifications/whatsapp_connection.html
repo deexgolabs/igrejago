@@ -3,18 +3,20 @@
 {% block content %}
 <h1 class="text-2xl font-bold text-slate-900 mb-1">WhatsApp</h1>
 <p class="text-sm text-slate-500 mb-6">
-    Conecta o número de WhatsApp da igreja — depois disso, campanhas, lembretes e mensagens
+    Conecta o(s) número(s) de WhatsApp da igreja — depois disso, campanhas, lembretes e mensagens
     avulsas saem de verdade (não só no console).
 </p>
 
 <div class="bg-white border border-slate-200 rounded-xl p-6 max-w-lg mb-6">
     <h2 class="text-sm font-semibold text-slate-700 mb-1">Canal de envio</h2>
     <p class="text-xs text-slate-400 mb-4">
-        <strong>Evolution API</strong> (padrão): conecta por QR code, texto livre a qualquer hora.
+        <strong>Evolution API</strong> (padrão): conecta por QR code, texto livre a qualquer hora,
+        dá pra conectar mais de um número (ex.: "WhatsApp da igreja" + "WhatsApp do pastor").
         <strong>API oficial da Meta</strong>: infraestrutura da própria igreja (painel de desenvolvedor da
-        Meta) — texto livre só funciona dentro de 24h da ÚLTIMA mensagem que o contato mandou pra igreja;
-        fora dessa janela a Meta exige um template pré-aprovado por ela (veja "Gerenciar templates" abaixo).
-        Use a API oficial pra responder conversa — broadcast/lembrete em massa segue melhor pela Evolution.
+        Meta) — só um número por igreja, texto livre só funciona dentro de 24h da ÚLTIMA mensagem que o
+        contato mandou pra igreja; fora dessa janela a Meta exige um template pré-aprovado por ela (veja
+        "Gerenciar templates" abaixo). Use a API oficial pra responder conversa — broadcast/lembrete em
+        massa segue melhor pela Evolution.
     </p>
     <form method="post" action="{% url 'notifications:whatsapp_meta_config' %}" class="form-padrao space-y-3">
         {% csrf_token %}
@@ -46,66 +48,106 @@
     {% endif %}
 </div>
 <style>
-.form-padrao input[type="text"], .form-padrao select { width: 100%; border: 1px solid #d1d5db; border-radius: 0.5rem; padding: 0.4rem 0.65rem; font-size: 0.875rem; }
+.form-padrao input[type="text"], .form-padrao input[type="number"], .form-padrao select {
+    width: 100%; border: 1px solid #d1d5db; border-radius: 0.5rem; padding: 0.4rem 0.65rem; font-size: 0.875rem;
+}
 </style>
 
+{% if not email_confirmed %}
 <div class="bg-white border border-slate-200 rounded-xl p-6 max-w-sm text-center space-y-4">
-    {% if not email_confirmed %}
-        <p class="text-sm text-amber-600 mb-2">
-            Confirme o e-mail da igreja (link enviado no cadastro) antes de conectar o WhatsApp.
-        </p>
-        <form method="post" action="{% url 'notifications:resend_confirmation' %}">
-            {% csrf_token %}
-            <button type="submit" class="border border-slate-300 rounded-lg px-4 py-2 text-sm hover:bg-slate-100">
-                Reenviar e-mail de confirmação
-            </button>
-        </form>
-    {% elif not whatsapp_liberado %}
-        <p class="text-sm text-amber-600 mb-2">
-            O envio de WhatsApp não está incluído no seu plano atual.
-        </p>
-        <a href="{% url 'core:assinatura' %}" class="inline-block border border-slate-300 rounded-lg px-4 py-2 text-sm hover:bg-slate-100">
-            Ver planos
-        </a>
-    {% elif is_meta_cloud %}
-        {% if configured %}
-        <p class="text-emerald-600 font-medium">Configurado</p>
-        <p class="text-xs text-slate-400">API oficial da Meta não tem QR code — o Phone Number ID e o Access Token acima já bastam pra enviar.</p>
-        {% else %}
-        <p class="text-slate-500 text-sm">Preencha o Phone Number ID e o Access Token acima pra ativar o envio pela API oficial.</p>
-        {% endif %}
-    {% elif not configured %}
-        <p class="text-sm text-amber-600">
-            A conexão ainda não foi configurada pelo responsável técnico do sistema.
-        </p>
-    {% elif img_src %}
-        <p class="text-sm text-slate-600">
-            Escaneie no celular: WhatsApp → Configurações → Aparelhos conectados → Conectar um aparelho.
-        </p>
-        <img src="{{ img_src }}" alt="QR Code WhatsApp" class="mx-auto w-64 h-64">
-        <p class="text-xs text-slate-400">O código expira em alguns minutos.</p>
-        <form method="post" action="{% url 'notifications:whatsapp_connect' %}">
-            {% csrf_token %}
-            <button type="submit" class="border border-slate-300 rounded-lg px-4 py-2 text-sm hover:bg-slate-100">
-                Gerar novo QR code
-            </button>
-        </form>
-    {% elif connected %}
-        <p class="text-emerald-600 font-medium">Conectado</p>
-        <form method="post" action="{% url 'notifications:whatsapp_disconnect' %}">
-            {% csrf_token %}
-            <button type="submit" class="border border-slate-300 rounded-lg px-4 py-2 text-sm hover:bg-slate-100">
-                Desconectar
-            </button>
-        </form>
+    <p class="text-sm text-amber-600 mb-2">
+        Confirme o e-mail da igreja (link enviado no cadastro) antes de conectar o WhatsApp.
+    </p>
+    <form method="post" action="{% url 'notifications:resend_confirmation' %}">
+        {% csrf_token %}
+        <button type="submit" class="border border-slate-300 rounded-lg px-4 py-2 text-sm hover:bg-slate-100">
+            Reenviar e-mail de confirmação
+        </button>
+    </form>
+</div>
+{% elif not whatsapp_liberado %}
+<div class="bg-white border border-slate-200 rounded-xl p-6 max-w-sm text-center space-y-4">
+    <p class="text-sm text-amber-600 mb-2">O envio de WhatsApp não está incluído no seu plano atual.</p>
+    <a href="{% url 'core:assinatura' %}" class="inline-block border border-slate-300 rounded-lg px-4 py-2 text-sm hover:bg-slate-100">
+        Ver planos
+    </a>
+</div>
+{% elif is_meta_cloud %}
+<div class="bg-white border border-slate-200 rounded-xl p-6 max-w-sm text-center space-y-4">
+    {% if configured %}
+    <p class="text-emerald-600 font-medium">Configurado</p>
+    <p class="text-xs text-slate-400">API oficial da Meta não tem QR code — o Phone Number ID e o Access Token acima já bastam pra enviar.</p>
     {% else %}
-        <p class="text-slate-500 text-sm">Desconectado.</p>
-        <form method="post" action="{% url 'notifications:whatsapp_connect' %}">
-            {% csrf_token %}
-            <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm rounded-lg px-4 py-2">
-                Conectar
-            </button>
-        </form>
+    <p class="text-slate-500 text-sm">Preencha o Phone Number ID e o Access Token acima pra ativar o envio pela API oficial.</p>
     {% endif %}
 </div>
+{% else %}
+<div class="bg-white border border-slate-200 rounded-xl p-6 max-w-2xl">
+    <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold text-slate-700">Números conectados</h2>
+        <span class="text-xs text-slate-400">{{ instances|length }} de {{ max_instancias }}</span>
+    </div>
+
+    {% for instancia in instances %}
+    <div class="border border-slate-100 rounded-lg p-4 mb-3 last:mb-0">
+        <div class="flex items-center justify-between mb-2">
+            <div>
+                <p class="font-medium text-slate-800">
+                    {{ instancia.name }}
+                    {% if instancia.is_default %}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-50 text-brand-700 ml-1">Padrão</span>{% endif %}
+                </p>
+                {% if instancia.connected %}
+                <p class="text-xs text-emerald-600 font-medium">Conectado</p>
+                {% elif instancia.connected is None %}
+                <p class="text-xs text-slate-400">Desconhecido — clique em Conectar</p>
+                {% else %}
+                <p class="text-xs text-slate-500">Desconectado</p>
+                {% endif %}
+            </div>
+            <div class="flex gap-2">
+                <form method="post" action="{% url 'notifications:whatsapp_instance_connect' instancia.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" class="text-xs border border-slate-300 rounded-lg px-3 py-1.5 hover:bg-slate-100">
+                        {% if instancia.connected %}Gerar novo QR{% else %}Conectar{% endif %}
+                    </button>
+                </form>
+                {% if instancia.connected %}
+                <form method="post" action="{% url 'notifications:whatsapp_instance_disconnect' instancia.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" class="text-xs border border-slate-300 rounded-lg px-3 py-1.5 hover:bg-slate-100">Desconectar</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+        <div class="flex gap-3 text-xs text-slate-400">
+            <span>Intervalo: {{ instancia.send_interval_seconds }}s</span>
+            <span>Lote: {{ instancia.batch_size }}</span>
+            <span>Tentativas: {{ instancia.max_retries }}</span>
+            <a href="{% url 'notifications:whatsapp_instance_update' instancia.pk %}" class="text-brand-600 hover:underline">Editar</a>
+            {% if not instancia.is_default %}
+            <form method="post" action="{% url 'notifications:whatsapp_instance_set_default' instancia.pk %}" class="inline">
+                {% csrf_token %}
+                <button type="submit" class="text-brand-600 hover:underline">Definir como padrão</button>
+            </form>
+            <a href="{% url 'notifications:whatsapp_instance_delete' instancia.pk %}" class="text-red-600 hover:underline">Excluir</a>
+            {% endif %}
+        </div>
+    </div>
+    {% empty %}
+    <p class="text-sm text-slate-400 mb-4">Nenhum número conectado ainda.</p>
+    {% endfor %}
+
+    {% if pode_adicionar_instancia %}
+    <form method="post" action="{% url 'notifications:whatsapp_instance_create' %}" class="form-padrao flex gap-2 mt-4 pt-4 border-t border-slate-100">
+        {% csrf_token %}
+        <input type="text" name="name" placeholder="Nome do número (ex.: WhatsApp do pastor)" required class="flex-1">
+        <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm rounded-lg px-4 py-2 whitespace-nowrap">+ Adicionar número</button>
+    </form>
+    {% else %}
+    <p class="text-xs text-amber-600 mt-4 pt-4 border-t border-slate-100">
+        Limite de números atingido — fale com o suporte pra aumentar.
+    </p>
+    {% endif %}
+</div>
+{% endif %}
 {% endblock %}

@@ -24,7 +24,7 @@ from core.models import WebhookSubscription
 from core.ratelimit import RateLimitMixin
 from core.tenancy import PublicChurchMixin, TenantFormMixin
 from core.webhooks import disparar_webhook
-from notifications.models import EmailMessage, MessageTemplate, SMSMessage, WhatsAppMessage
+from notifications.models import EmailMessage, MessageTemplate, SMSMessage, WhatsAppInstance, WhatsAppMessage
 from people.forms import (
     CampaignForm,
     DepartmentForm,
@@ -663,6 +663,7 @@ class CampaignSendView(CanManagePeopleMixin, View):
         label = form.cleaned_data["campaign_label"] or f"Campanha {date.today():%d/%m/%Y}"
         meta_template = form.cleaned_data.get("meta_template")
         value_lines = form.cleaned_data.get("meta_template_value_lines")
+        instance = form.cleaned_data.get("instance") or WhatsAppInstance.padrao()
 
         def _montar_mensagem(person):
             if meta_template:
@@ -676,6 +677,7 @@ class CampaignSendView(CanManagePeopleMixin, View):
                 person=person,
                 phone=person.whatsapp_number,
                 message=texto,
+                instance=instance,
                 meta_template=meta_template,
                 meta_template_values=valores,
                 campaign_label=label,

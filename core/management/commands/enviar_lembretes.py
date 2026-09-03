@@ -17,7 +17,7 @@ from django.core.management.base import BaseCommand
 from cells.models import Cell
 from core.models import Church
 from core.tenant_context import tenant_context
-from notifications.models import WhatsAppMessage
+from notifications.models import WhatsAppInstance, WhatsAppMessage
 from people.models import Person
 
 
@@ -44,6 +44,7 @@ class Command(BaseCommand):
     @staticmethod
     def _enfileirar_igreja(church_config, today):
         to_create = []
+        instancia_padrao = WhatsAppInstance.padrao()
 
         for person in Person.objects.filter(birth_date__month=today.month, birth_date__day=today.day):
             if not person.phone:
@@ -53,6 +54,7 @@ class Command(BaseCommand):
             )
             to_create.append(WhatsAppMessage(
                 church=church_config, person=person, phone=person.whatsapp_number, message=message,
+                instance=instancia_padrao,
                 campaign_label="Lembrete de aniversário",
             ))
         birthdays_queued = len(to_create)
@@ -66,6 +68,7 @@ class Command(BaseCommand):
                 if member.phone:
                     to_create.append(WhatsAppMessage(
                         church=church_config, person=member, phone=member.whatsapp_number, message=message,
+                        instance=instancia_padrao,
                         campaign_label=f"Lembrete de célula — {cell.name}",
                     ))
         cell_reminders_queued = len(to_create) - birthdays_queued

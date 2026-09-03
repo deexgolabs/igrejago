@@ -957,8 +957,14 @@ class GestaoDashboardView(IsPlatformOwnerMixin, TemplateView):
         # Lê o flag que `verificar_conexao_whatsapp` já mantém, em vez de
         # checar a API de cada igreja ao vivo aqui — isso seria lento e
         # gastaria a mesma cota de CPU que a tela de comandos existe pra
-        # poupar. Reflete a última vez que aquele comando rodou.
-        context["whatsapp_disconnected_count"] = Church.objects.filter(whatsapp_disconnect_alert_sent=True).count()
+        # poupar. Reflete a última vez que aquele comando rodou. Conta
+        # IGREJAS (não instâncias) — uma igreja com 2 números e só 1
+        # desconectado ainda entra aqui, é sinal de atenção mesmo assim.
+        from notifications.models import WhatsAppInstance
+
+        context["whatsapp_disconnected_count"] = (
+            WhatsAppInstance.todas_as_igrejas.filter(disconnect_alert_sent=True).values("church").distinct().count()
+        )
         return context
 
 

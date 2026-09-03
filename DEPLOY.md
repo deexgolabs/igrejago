@@ -36,11 +36,14 @@ User.objects.create_user(username='pastor-novo', password='TROQUE-ISSO', role=Us
 "
 ```
 
-`slug` e `whatsapp_instance` são gerados sozinhos a partir do nome no
-`save()`. Um usuário **sem** igreja (`church=None`, `is_staff=True`) é o
-dono da plataforma — vê e gerencia TODAS as igrejas pelo Django admin,
-sem filtro nenhum; não crie isso por engano numa conta pensada pra ser de
-uma igreja só.
+`slug` é gerado sozinho a partir do nome no `save()`. O nome de cada
+instância de WhatsApp (`WhatsAppInstance.whatsapp_instance`, gerado do
+slug — `igreja-<slug>`, sufixado da 2ª em diante) só nasce quando a
+igreja adiciona um número em `/mensagens/whatsapp/` — ver 5.1 abaixo,
+agora "1 igreja → N instâncias". Um usuário **sem** igreja
+(`church=None`, `is_staff=True`) é o dono da plataforma — vê e gerencia
+TODAS as igrejas pelo Django admin, sem filtro nenhum; não crie isso por
+engano numa conta pensada pra ser de uma igreja só.
 
 Uma igreja criada pelo cadastro público (ou por você, se preencher
 `trial_expira_em`) vence o trial sozinha via `manage.py expirar_trials`
@@ -176,35 +179,60 @@ EVOLUTION_API_URL=https://evolution.suaigreja.com
 EVOLUTION_API_KEY=o-mesmo-valor-de-AUTHENTICATION_API_KEY-acima
 ```
 
-Cada igreja só tem sua PRÓPRIA instância nesse servidor compartilhado —
-`Church.whatsapp_instance` é gerado sozinho a partir do slug da igreja
-(ex.: `igreja-igreja-nova`), não precisa digitar nada. Pra criar a
-instância da primeira vez, use os botões "Criar/recriar instância" e
-"Ver QR code" no painel de CADA igreja no Django admin
-(`/admin/core/church/<id>/change/`, exige `is_staff` — a Evolution
-devolve o token da instância, que o admin já salva sozinho em
-`whatsapp_instance_token`). A partir daí, o dia a dia da igreja é só a
-tela `/mensagens/whatsapp/`: um botão **Conectar** (mostra o QR code na
-hora — reaproveita a instância já criada) e **Desconectar**, sem nenhum
-campo técnico visível. Se o número cair (ex.: trocou de aparelho), a
-igreja mesma resolve clicando em Conectar de novo — só precisa voltar ao
-dono/admin se a própria instância no servidor Evolution precisar ser
-recriada do zero.
+**Desde a rodada de "múltiplas instâncias por igreja": não é mais "1
+igreja = 1 número" — é "1 igreja → N instâncias"** (ex.: "WhatsApp da
+igreja" + "WhatsApp do pastor"), cada uma uma linha em
+`notifications.WhatsAppInstance`, cada uma seu próprio nome nesse
+servidor compartilhado (gerado sozinho do slug da igreja — ex.:
+`igreja-igreja-nova`, sufixado `-2`/`-3`... a partir da 2ª instância da
+mesma igreja — não precisa digitar nada), próprio
+`whatsapp_instance_token`, `webhook_secret` e ritmo de envio
+(`send_interval_seconds`/`batch_size`/`max_retries`, independentes por
+número). Quantas instâncias uma igreja pode ter é
+`Church.whatsapp_max_instancias` — ajuste manual do dono da plataforma
+(sem regra fixa de plano por enquanto), padrão 1.
+
+Pra criar/conectar uma instância pela primeira vez, use os botões
+"Criar/recriar instância" e "Ver QR code" no painel de CADA
+`WhatsAppInstance` no Django admin
+(`/admin/notifications/whatsappinstance/<id>/change/`, exige
+`is_staff` — a Evolution devolve o token da instância, que o admin já
+salva sozinho em `whatsapp_instance_token`). A partir daí, o dia a dia
+da igreja é só a tela `/mensagens/whatsapp/`: uma linha por número
+conectado, cada uma com **Conectar** (mostra o QR code na hora —
+reaproveita a instância já criada) e **Desconectar**, mais **Adicionar
+número** (até o limite de `whatsapp_max_instancias`) — sem nenhum campo
+técnico visível. Se um número cair (ex.: trocou de aparelho), a igreja
+mesma resolve clicando em Conectar de novo naquela linha — só precisa
+voltar ao dono/admin se a própria instância no servidor Evolution
+precisar ser recriada do zero.
+
+**Nota de honestidade sobre a migração**: passar de "campo direto na
+`Church`" pra "linha em `WhatsAppInstance`" foi uma migração de DADO de
+verdade (não só de schema) — o nome real da instância já registrada no
+servidor Evolution (crítico: renomear desconectaria quem já escaneou o
+QR code) foi copiado tal e qual pra uma `WhatsAppInstance` nova, e só
+depois os campos antigos (`Church.whatsapp_instance` etc.) foram
+removidos. Em produção, **rode `python manage.py backup_banco` antes de
+aplicar essa migração** (`python manage.py migrate`) — é a mesma
+recomendação de sempre pra qualquer migração que mexe em dado real, não
+só estrutura.
 
 ### 5.2. Confirmação de entrega (webhook)
 
 Isso já é automático: ao clicar em "Criar/recriar instância" (Django
-admin), `core.whatsapp.criar_instancia()` gera sozinho um
-`Church.whatsapp_webhook_secret` (se a igreja ainda não tiver um) e
-já embute a configuração do webhook — URL própria
+admin, agora em `WhatsAppInstance`), `core.whatsapp.criar_instancia()`
+gera sozinho um `WhatsAppInstance.webhook_secret` (se a instância ainda
+não tiver um) e já embute a configuração do webhook — URL própria
 (`https://seudominio.com/mensagens/webhook/evolution/`, calculada de
 `request.build_absolute_uri`) + o evento `messages.update` + o cabeçalho
 `X-Webhook-Secret` — na própria chamada de criação da instância. Não
 precisa mexer no painel da Evolution API manualmente. O segredo é único
-por igreja porque a URL do webhook é a mesma pra todas — é ele que diz
-de qual igreja é o evento; a Evolution API não assina os webhooks por
-conta própria, então sem um segredo que bata com alguma igreja, toda
-chamada é rejeitada.
+POR INSTÂNCIA (não mais por igreja — uma igreja com 2 números tem 2
+segredos) porque a URL do webhook é a mesma pra todas; é ele que diz de
+qual instância (e daí qual igreja) é o evento — a Evolution API não
+assina os webhooks por conta própria, então sem um segredo que bata com
+alguma instância, toda chamada é rejeitada.
 
 **Nota de honestidade**: o formato da resposta da API (criação de
 instância, QR code, status, e o payload do webhook) foi **confirmado ao

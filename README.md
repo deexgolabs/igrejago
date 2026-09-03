@@ -83,16 +83,24 @@ validado no projeto irmão `crm-odonto`, adaptado ao estilo deste projeto:
   encontrado e corrigido nesta rodada, não documentado assim no Django).
 - **WhatsApp é um servidor Evolution API único, da plataforma**
   (`settings.EVOLUTION_API_URL`/`EVOLUTION_API_KEY`, não mais campo por
-  igreja), com uma instância isolada por igreja (`Church.whatsapp_instance`,
-  gerado do slug). A igreja continua só vendo Conectar/Desconectar com QR
-  code, sem nunca ver URL/chave — isso não mudou.
+  igreja), mas cada igreja pode conectar MAIS de um número —
+  `notifications.WhatsAppInstance` (não mais `Church.whatsapp_instance`,
+  removido) — cada instância com o próprio nome no servidor Evolution
+  (gerado do slug, com sufixo pra a 2ª+ da mesma igreja), próprio
+  intervalo/lote/tentativas de envio, e uma marcada `is_default` (usada
+  pelos disparos automáticos — escala, lembrete, campanha sem escolha
+  explícita). A igreja continua só vendo Conectar/Desconectar com QR
+  code por número, sem nunca ver URL/chave — isso não mudou. Limite de
+  quantas instâncias por igreja em `Church.whatsapp_max_instancias`
+  (ajuste manual do dono da plataforma, sem regra fixa de plano ainda).
 - **Webhooks (Mercado Pago) resolvem a igreja por um `?church_id=`**
   embutido por NÓS na `notification_url` ao criar a preferência de
   checkout — o Mercado Pago chama de volta sem usuário logado e sem slug
   na URL, então a igreja precisa vir de algo que a própria plataforma
   controla, não do que o gateway decide. O webhook da Evolution API
-  (WhatsApp) resolve pelo `X-Webhook-Secret` de cada igreja em vez disso
-  (já existia um segredo por conexão).
+  (WhatsApp) resolve por qual `WhatsAppInstance` tem aquele
+  `X-Webhook-Secret` (segredo por INSTÂNCIA, não mais por igreja — uma
+  igreja com 2 números tem 2 segredos).
 - **Criar uma igreja é self-service** — `/cadastro-igreja/` (Fase 2, ver
   seção própria abaixo). Continua dando pra criar manualmente pelo
   Django admin/shell também, se preferir.
@@ -250,22 +258,39 @@ Decisões de design que valem explicar:
   de (a) a request estourar o timeout do servidor e (b) o número real ser
   marcado como spam/banido pelo WhatsApp. `enviar_lembretes` também roda
   via cron 1x/dia, mas hoje só enfileira — não envia nada sozinho.
-  Sem `Church.whatsapp_api_*` configurado, cada mensagem processada
+  Sem nenhum `WhatsAppInstance` configurado (canal Evolution) ou sem
+  `Church.whatsapp_meta_*` (canal Meta Cloud), cada mensagem processada
   só é impressa no terminal (`core/whatsapp.py`, mesmo fallback de sempre).
+- **Multi-instância (Evolution) — cada número com o próprio ritmo.**
+  `notifications.WhatsAppInstance` é a unidade de conexão agora, não a
+  `Church` — uma igreja pode conectar mais de um número Evolution (ex.
+  "WhatsApp da igreja" + "WhatsApp do pastor"), cada um com o próprio
+  `send_interval_seconds`/`batch_size`/`max_retries` (independentes —
+  um número lento não atrasa o outro). `processar_fila_whatsapp`
+  processa cada instância no seu próprio lote/intervalo; mensagem sem
+  `instance` definido (avulsa sem escolha explícita, ou automática —
+  escala/lembrete/campanha) cai na instância `is_default` da igreja
+  (`WhatsAppInstance.padrao()`). O canal Meta Cloud continua
+  single-instance por igreja (`Church.whatsapp_send_interval_seconds`/
+  `whatsapp_batch_size`/`whatsapp_max_retries` — mesmos nomes, agora só
+  valem pra Meta).
 - **Retry automático + reenvio manual.** Uma mensagem que falha volta pro
-  lote do próximo `processar_fila_whatsapp` até `Church.whatsapp_max_retries`
-  (padrão 3) tentativas — depois disso, para de tentar sozinha, mas
+  lote do próximo `processar_fila_whatsapp` até o `max_retries` da
+  instância (Evolution) ou de `Church.whatsapp_max_retries` (Meta),
+  padrão 3, tentativas — depois disso, para de tentar sozinha, mas
   continua reenviável manualmente (botão "Reenviar" em `/mensagens/`, que
   zera `retry_count` e volta pra `PENDING`).
 - **Confirmação de entrega via webhook.** `WhatsAppMessage.external_id`
   guarda o id que a Evolution API devolve no envio; `notifications.WhatsAppWebhookView`
   (`/mensagens/webhook/evolution/`) recebe o evento `messages.update` da
   Evolution e atualiza `delivery_status`/`delivered_at`/`read_at` casando
-  pelo `external_id`. Sem assinatura própria da Evolution API pra
-  webhooks, a autenticação é um segredo compartilhado
-  (`Church.whatsapp_webhook_secret`, conferido no cabeçalho
-  `X-Webhook-Secret`) — sem segredo configurado, rejeita tudo. Confirmado
-  ao vivo contra um servidor Evolution v2.3.7 real: o evento
+  pelo `external_id` + `instance`. Sem assinatura própria da Evolution
+  API pra webhooks, a autenticação é um segredo POR INSTÂNCIA
+  (`WhatsAppInstance.webhook_secret`, gerado sozinho na criação,
+  conferido no cabeçalho `X-Webhook-Secret`) — uma igreja com 2 números
+  tem 2 segredos, o webhook resolve QUAL instância (e daí qual igreja)
+  pelo segredo recebido; sem bater com nenhum, rejeita. Confirmado ao
+  vivo contra um servidor Evolution v2.3.7 real: o evento
   `messages.update` manda `data.keyId`/`data.status` DIRETO (não aninhado
   em `key`/`update`, como uma leitura apressada da doc sugeria — corrigido
   depois de capturar o payload real). `criar_instancia()` já embute a
@@ -273,22 +298,26 @@ Decisões de design que valem explicar:
   na própria chamada de criação da instância — não é mais um passo manual.
 - **Duas telas fazem a MESMA coisa pra conectar o WhatsApp — a do
   `notifications.WhatsAppConnectionView` (estilizada, no fluxo normal do
-  app, pensada pro pastor usar) e a do Django admin
-  (`ChurchAdmin.get_urls()`, mais crua, útil como fallback).** As
+  app, uma linha por número conectado, pensada pro pastor usar) e a do
+  Django admin (`notifications.WhatsAppInstanceAdmin.get_urls()`, mais
+  crua, uma por `WhatsAppInstance`, útil como fallback).** As
   duas chamam exatamente as mesmas funções em `core/whatsapp.py`
-  (criar instância / obter QR code / checar status), então um bug
+  (criar instância / obter QR code / checar status — duck-typed, aceitam
+  qualquer objeto com `.whatsapp_api_url`/`.whatsapp_instance`/
+  `.whatsapp_send_key`, hoje sempre um `WhatsAppInstance`), então um bug
   corrigido ali corrige nos dois lugares. Criar a instância usa a chave
-  GLOBAL do servidor Evolution (`whatsapp_api_key`); enviar
+  GLOBAL do servidor Evolution (`settings.EVOLUTION_API_KEY`); enviar
   mensagem/checar status usa a chave da PRÓPRIA instância
-  (`whatsapp_instance_token`, preenchida automaticamente ao criar — ou
-  cai pra chave global se vazia). Formato da resposta da API confirmado
-  ao vivo contra um servidor Evolution v2.3.7 real (Contabo): criação,
-  QR code (`qrcode.base64`, já com o prefixo `data:image/...`), status
-  (`instance.state`) e o `hash` da instância (string direto, não
-  aninhado) bateram com o parsing já existente sem precisar de ajuste —
-  só o webhook precisou de correção (ver acima). Os caminhos de erro
-  também seguem verificados (URL/instância inexistente → falha de DNS
-  capturada e mostrada como aviso, sem quebrar a página, nas duas telas).
+  (`WhatsAppInstance.whatsapp_instance_token`, preenchida automaticamente
+  ao criar — ou cai pra chave global se vazia). Formato da resposta da
+  API confirmado ao vivo contra um servidor Evolution v2.3.7 real
+  (Contabo): criação, QR code (`qrcode.base64`, já com o prefixo
+  `data:image/...`), status (`instance.state`) e o `hash` da instância
+  (string direto, não aninhado) bateram com o parsing já existente sem
+  precisar de ajuste — só o webhook precisou de correção (ver acima). Os
+  caminhos de erro também seguem verificados (URL/instância inexistente
+  → falha de DNS capturada e mostrada como aviso, sem quebrar a página,
+  nas duas telas).
 - **Tela de Configurações in-app (`/configuracoes/`)**: um `ModelForm`
   comum sobre `Church.get_solo()` — antes só dava pra editar pelo
   Django admin. Existe pra quem administra o sistema no dia a dia sem
@@ -453,7 +482,7 @@ Decisões de design que valem explicar:
 - `/links/admin/` — editar página + gerenciar links (+ cliques por link)
 - `/financeiro/` — lançamentos + totais + gráfico · `/financeiro/orcamento/` · `/financeiro/exportar/` (CSV/Excel) · `/financeiro/recorrentes/` · `/financeiro/doacoes/` (confirmar doação PIX)
 - `/celulas/` — lista de células · CRUD · `/celulas/<id>/reuniao/nova/` (registrar presença)
-- `/mensagens/` — fila de WhatsApp (status, cancelar, reenviar) · `/mensagens/nova/` (avulsa) · `/mensagens/modelos/` (CRUD) · `/mensagens/whatsapp/` (Conectar/Desconectar — só isso, sem campo técnico) · `/mensagens/whatsapp/conectar/`, `/mensagens/whatsapp/desconectar/` (POST-only)
+- `/mensagens/` — fila de WhatsApp (status, cancelar, reenviar) · `/mensagens/nova/` (avulsa) · `/mensagens/modelos/` (CRUD) · `/mensagens/whatsapp/` (lista dos números conectados — Evolution API aceita mais de uma instância por igreja, ex. "WhatsApp da igreja" + "WhatsApp do pastor", limite em `Church.whatsapp_max_instancias`) · `/mensagens/whatsapp/numeros/novo/`, `/mensagens/whatsapp/numeros/<id>/conectar/`, `/mensagens/whatsapp/numeros/<id>/desconectar/`, `/mensagens/whatsapp/numeros/<id>/editar/` (intervalo/lote/tentativas por número), `/mensagens/whatsapp/numeros/<id>/padrao/`, `/mensagens/whatsapp/numeros/<id>/excluir/` — sem campo técnico exposto pra secretaria
 - `/formularios/` — CRUD de formulários customizados · `/formularios/<id>/campos/` (adicionar/editar/excluir pergunta) · `/formularios/<id>/respostas/` (+ `exportar/` em CSV)
 - `/configuracoes/` — configuração que a própria igreja edita (nome, templates de mensagem, intervalo/lote/retries da fila, alertas administrativos, PIX, Mercado Pago) — **não** inclui URL/chave/instância da Evolution API
 - `/auditoria/` — quem criou/editou/excluiu o quê (mesmos dados do Django admin, tela própria)
@@ -524,19 +553,24 @@ quanto na mensagem avulsa.
 O servidor Evolution é **único, compartilhado por todas as igrejas**
 (`settings.EVOLUTION_API_URL`/`EVOLUTION_API_KEY`, no `.env` da
 plataforma — não é mais um campo de igreja nenhuma) — só o **dono do
-sistema** mexe nisso. Cada igreja só tem sua própria instância nesse
-servidor (`Church.whatsapp_instance`, gerado do slug,
-`whatsapp_instance_token`, `whatsapp_webhook_secret`), editável pelo dono
-no Django admin (`/admin/core/church/<id>/change/` — exige `is_staff`;
-`ChurchConfigForm`, o form usado em `/configuracoes/`, nem inclui esses
-campos no `Meta.fields`, então um POST direto na tela da igreja não
-altera nada disso). A igreja (Pastor/Admin/Líder) só vê
-`/mensagens/whatsapp/`: um botão "Conectar" (que já mostra o QR code na
-hora, criando a instância sozinho se for a primeira vez) e "Desconectar"
-— nenhum campo técnico aparece nessa tela. O restante da config da fila
-(templates de mensagem, intervalo, lote, retries, PIX, Mercado Pago) fica
-em `/configuracoes/`, editável pela própria igreja. Ver `DEPLOY.md` seção
-5.1 pro passo a passo completo de self-hosting com Docker no Contabo.
+sistema** mexe nisso. Cada igreja pode ter MAIS de uma instância nesse
+servidor (`notifications.WhatsAppInstance` — não mais `Church`, que só
+guarda o limite `whatsapp_max_instancias`), cada uma com seu próprio nome
+gerado do slug (`igreja-<slug>`, sufixado `-2`/`-3`... da 2ª em diante),
+`whatsapp_instance_token`, `webhook_secret`, editável pelo dono no Django
+admin (`/admin/notifications/whatsappinstance/<id>/change/` — exige
+`is_staff`; `ChurchConfigForm`, o form usado em `/configuracoes/`, nem
+inclui esses campos no `Meta.fields`, então um POST direto na tela da
+igreja não altera nada disso). A igreja (Pastor/Admin/Líder) só vê
+`/mensagens/whatsapp/`: uma linha por número conectado, cada uma com
+"Conectar" (já mostra o QR code na hora, criando a instância sozinha se
+for a primeira vez) e "Desconectar", mais "Adicionar número" (até o
+limite de `whatsapp_max_instancias`) — nenhum campo técnico aparece
+nessa tela. O restante da config da fila (templates de mensagem, PIX,
+Mercado Pago) fica em `/configuracoes/`; intervalo/lote/retries agora
+são POR NÚMERO, editáveis em "Editar" na própria linha do número.
+Ver `DEPLOY.md` seção 5.1 pro passo a passo completo de self-hosting
+com Docker no Contabo.
 
 ## Formulários customizados
 

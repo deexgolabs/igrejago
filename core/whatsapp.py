@@ -1,12 +1,22 @@
 """Envio de WhatsApp — dois canais possíveis por igreja
 (`Church.whatsapp_provider`): Evolution API (gateway open-source,
 self-hosted, conecta por QR code — sem aprovação de conta comercial da
-Meta) ou a API oficial da Meta (WhatsApp Cloud API — texto livre só
-funciona dentro de 24h da última mensagem que o CONTATO mandou pra
-igreja; fora disso a Meta exige um template pré-aprovado por ela — ver
-`_enviar_via_meta_cloud`). Sem `Church.whatsapp_api_configured`, o
-envio cai no fallback de imprimir no console — a fila continua
-funcionando (e testável) sem nenhuma credencial real, nos dois canais.
+Meta; uma igreja pode ter MAIS DE UM número conectado, cada um sua
+própria `notifications.WhatsAppInstance`) ou a API oficial da Meta
+(WhatsApp Cloud API — um número só por igreja; texto livre só funciona
+dentro de 24h da última mensagem que o CONTATO mandou pra igreja; fora
+disso a Meta exige um template pré-aprovado por ela — ver
+`_enviar_via_meta_cloud`). Sem `Church.whatsapp_api_configured`/
+`WhatsAppInstance.esta_configurada`, o envio cai no fallback de
+imprimir no console — a fila continua funcionando (e testável) sem
+nenhuma credencial real, nos dois canais.
+
+As funções de gestão de instância (`criar_instancia`/
+`configurar_webhook`/`obter_qrcode`/`obter_status_conexao`/
+`desconectar_instancia`) são "duck-typed" de propósito — não exigem um
+`Church`, só um objeto com `.whatsapp_api_url`/`.whatsapp_api_key`/
+`.whatsapp_instance`/`.whatsapp_send_key`. É isso que deixa passar um
+`WhatsAppInstance` no lugar de `Church` sem precisar mudar nada aqui.
 
 Gestão de template da Meta (`criar_template_meta`/
 `consultar_status_template_meta`/`excluir_template_meta`, usadas por
@@ -29,7 +39,7 @@ logger = logging.getLogger(__name__)
 GRAPH_API_VERSION = "v23.0"
 
 
-def enviar_whatsapp(phone, message, *, church_config, meta_template=None, template_values=None):
+def enviar_whatsapp(phone, message, *, church_config, instance=None, meta_template=None, template_values=None):
     """Envia UMA mensagem agora, pelo canal configurado nesta igreja.
     Devolve (True, "", external_id) em sucesso ou (False, "motivo", "")
     em falha — quem processa a fila (`processar_fila_whatsapp`) usa o
@@ -40,6 +50,14 @@ def enviar_whatsapp(phone, message, *, church_config, meta_template=None, templa
     aplica nenhum intervalo/espera aqui — isso é responsabilidade de
     quem chama em loop, pra manter esta função simples e testável
     isoladamente.
+
+    `instance` (`notifications.WhatsAppInstance`): no canal Evolution,
+    é ela que diz por qual número mandar — uma igreja pode ter mais de
+    um conectado, cada um com o próprio intervalo/lote. Sem nenhuma
+    (`None` — igreja que nunca conectou nada ainda), cai no mesmo
+    fallback de console de sempre, pra fila continuar testável sem
+    credencial real. Ignorado no canal Meta Cloud (só existe um número
+    por igreja lá).
 
     `meta_template`/`template_values` (opcionais): pedem pra tentar
     mandar via template aprovado da Meta em vez de texto livre — só tem
@@ -56,19 +74,22 @@ def enviar_whatsapp(phone, message, *, church_config, meta_template=None, templa
             phone, message, church_config=church_config,
             meta_template=meta_template, template_values=template_values,
         )
-    return _enviar_via_evolution(phone, message, church_config=church_config)
+    if instance is None:
+        _print_safe(f"[WhatsApp Evolution — sem instância configurada, console fallback] Para {phone}: {message}")
+        return True, "", ""
+    return _enviar_via_evolution(phone, message, instance=instance)
 
 
-def _enviar_via_evolution(phone, message, *, church_config):
-    if not church_config.whatsapp_api_configured:
-        _print_safe(f"[WhatsApp Evolution — console fallback] Para {phone}: {message}")
+def _enviar_via_evolution(phone, message, *, instance):
+    if not instance.esta_configurada:
+        _print_safe(f"[WhatsApp Evolution ({instance.name}) — console fallback] Para {phone}: {message}")
         return True, "", ""
 
     try:
         response = requests.post(
-            f"{church_config.whatsapp_api_url}/message/sendText/{church_config.whatsapp_instance}",
+            f"{instance.whatsapp_api_url}/message/sendText/{instance.whatsapp_instance}",
             json={"number": phone, "text": message},
-            headers={"apikey": church_config.whatsapp_send_key},
+            headers={"apikey": instance.whatsapp_send_key},
             timeout=15,
         )
         response.raise_for_status()
@@ -76,7 +97,7 @@ def _enviar_via_evolution(phone, message, *, church_config):
         external_id = data.get("key", {}).get("id", "") if isinstance(data, dict) else ""
         return True, "", external_id
     except Exception as exc:
-        logger.exception("Falha ao enviar WhatsApp para %s via Evolution API", phone)
+        logger.exception("Falha ao enviar WhatsApp (%s) para %s via Evolution API", instance.name, phone)
         return False, str(exc)[:255], ""
 
 

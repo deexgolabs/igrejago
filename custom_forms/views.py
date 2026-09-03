@@ -16,7 +16,7 @@ from core.tenancy import PublicChurchMixin, TenantFormMixin
 from custom_forms.forms import CustomFormForm, FormFieldForm
 from custom_forms.models import CustomForm, FormAnswer, FormField, FormResponse
 from custom_forms.starter_templates import STARTER_TEMPLATES
-from notifications.models import WhatsAppMessage
+from notifications.models import WhatsAppInstance, WhatsAppMessage
 from people.models import Person
 
 logger = logging.getLogger(__name__)
@@ -430,7 +430,8 @@ class PublicFormView(PublicChurchMixin, RateLimitMixin, View):
             message = f'Obrigado! Recebemos sua resposta para "{custom_form.title}".'
 
         WhatsAppMessage.objects.create(
-            church=church, phone=digits, message=message, campaign_label=f"Formulário: {custom_form.title}",
+            church=church, phone=digits, message=message, instance=WhatsAppInstance.padrao(),
+            campaign_label=f"Formulário: {custom_form.title}",
         )
 
 

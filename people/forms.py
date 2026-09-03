@@ -3,7 +3,7 @@ from django.utils import timezone
 
 from accounts.models import User
 from core.lgpd import privacy_consent_label
-from notifications.models import WhatsAppMetaTemplate
+from notifications.models import WhatsAppInstance, WhatsAppMetaTemplate
 from people.models import Department, Family, Person, Tag
 
 # LANGUAGE_CODE = 'pt-br' faz o Django esperar dd/mm/aaaa nos <input type="date">
@@ -157,6 +157,10 @@ class CampaignForm(forms.Form):
         label="Mensagem", widget=forms.Textarea(attrs={"rows": 4}), required=False,
         help_text="Use {nome} para personalizar com o nome de cada pessoa.",
     )
+    instance = forms.ModelChoiceField(
+        label="Enviar por (WhatsApp)", queryset=WhatsAppInstance.objects.none(), required=False,
+        help_text="Só aparece quando o canal é a Evolution API — em branco, usa a instância padrão da igreja.",
+    )
     meta_template = forms.ModelChoiceField(
         label="Ou usar template aprovado da Meta (opcional)",
         queryset=WhatsAppMetaTemplate.objects.none(), required=False,
@@ -170,11 +174,17 @@ class CampaignForm(forms.Form):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # `WhatsAppMetaTemplate` é `TenantModel` — mesmo motivo de sempre,
-        # o queryset declarado na classe roda sem igreja no thread-local.
+        # `WhatsAppMetaTemplate`/`WhatsAppInstance` são `TenantModel` —
+        # mesmo motivo de sempre, o queryset declarado na classe roda
+        # sem igreja no thread-local.
         self.fields["meta_template"].queryset = WhatsAppMetaTemplate.objects.filter(
             status=WhatsAppMetaTemplate.Status.APPROVED
         )
+        instances = WhatsAppInstance.objects.all()
+        self.fields["instance"].queryset = instances
+        instancia_padrao = instances.filter(is_default=True).first()
+        if instancia_padrao:
+            self.fields["instance"].initial = instancia_padrao.pk
 
     def clean(self):
         cleaned = super().clean()

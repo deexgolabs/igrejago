@@ -195,13 +195,15 @@ class TestWhatsAppWebhookPayloadShape:
     def test_criar_instancia_embeds_enabled_true_in_webhook(self, church_config, settings):
         from unittest.mock import patch, Mock
         from core.whatsapp import criar_instancia
+        from notifications.models import WhatsAppInstance
 
         settings.EVOLUTION_API_URL = "https://fake.example.com"
         settings.EVOLUTION_API_KEY = "global-key"
+        instancia = WhatsAppInstance.objects.create(church=church_config, name="Teste")
         with patch("core.whatsapp.requests.post") as mock_post:
             mock_post.return_value = Mock(json=lambda: {"hash": "x"}, raise_for_status=lambda: None)
             criar_instancia(
-                church_config, instance_name="igreja-x",
+                instancia, instance_name="igreja-x",
                 webhook_url="https://example.com/webhook/", webhook_secret="segredo",
             )
         sent_json = mock_post.call_args.kwargs["json"]
@@ -210,13 +212,15 @@ class TestWhatsAppWebhookPayloadShape:
     def test_configurar_webhook_sends_enabled_true(self, church_config, settings):
         from unittest.mock import patch, Mock
         from core.whatsapp import configurar_webhook
+        from notifications.models import WhatsAppInstance
 
         settings.EVOLUTION_API_URL = "https://fake.example.com"
         settings.EVOLUTION_API_KEY = "global-key"
+        instancia = WhatsAppInstance.objects.create(church=church_config, name="Teste")
         with patch("core.whatsapp.requests.post") as mock_post:
             mock_post.return_value = Mock(json=lambda: {}, raise_for_status=lambda: None)
             configurar_webhook(
-                church_config, instance_name="igreja-x",
+                instancia, instance_name="igreja-x",
                 webhook_url="https://example.com/webhook/", webhook_secret="segredo",
             )
         sent_json = mock_post.call_args.kwargs["json"]
@@ -353,93 +357,6 @@ def admin_client_(client, django_user_model):
 
 
 @pytest.mark.django_db
-class TestWhatsAppConnectionAdmin:
-    def test_change_form_renders_without_configured_connection(self, admin_client_, church_config):
-        response = admin_client_.get(f"/admin/core/church/{church_config.pk}/change/")
-        assert response.status_code == 200
-        assert b"Criar/recriar inst\xc3\xa2ncia" in response.content
-
-    def test_create_instance_without_url_shows_error_and_redirects(self, admin_client_, church_config):
-        response = admin_client_.get(f"/admin/core/church/{church_config.pk}/whatsapp/criar-instancia/")
-        assert response.status_code == 302
-
-    def test_qrcode_without_config_redirects_with_error(self, admin_client_, church_config):
-        response = admin_client_.get(f"/admin/core/church/{church_config.pk}/whatsapp/qrcode/")
-        assert response.status_code == 302
-
-    def test_disconnect_without_config_redirects_with_error(self, admin_client_, church_config):
-        response = admin_client_.get(f"/admin/core/church/{church_config.pk}/whatsapp/desconectar/")
-        assert response.status_code == 302
-
-    def test_create_instance_generates_webhook_secret_and_configures_it(self, admin_client_, church_config, settings):
-        """`criar_instancia()` agora embute a configuração do webhook de
-        confirmação de entrega direto na chamada de criação — não é mais
-        um passo manual (ver README/DEPLOY.md). Confirma que a view gera
-        um segredo (se a igreja ainda não tiver um) e passa a URL/segredo
-        certos pra `core.whatsapp.criar_instancia()`."""
-        from unittest.mock import patch
-
-        settings.EVOLUTION_API_URL = "https://fake.example.com"
-        settings.EVOLUTION_API_KEY = "global-key"
-        church_config.whatsapp_webhook_secret = ""
-        church_config.save()
-
-        with patch("core.admin.whatsapp.criar_instancia", return_value={"hash": "novo-token"}) as mock_criar:
-            response = admin_client_.get(f"/admin/core/church/{church_config.pk}/whatsapp/criar-instancia/")
-        assert response.status_code == 302
-
-        church_config.refresh_from_db()
-        assert church_config.whatsapp_webhook_secret  # foi gerado, não ficou em branco
-
-        _, kwargs = mock_criar.call_args
-        assert kwargs["webhook_secret"] == church_config.whatsapp_webhook_secret
-        assert kwargs["webhook_url"].endswith("/mensagens/webhook/evolution/")
-
-    def test_create_instance_reuses_existing_webhook_secret(self, admin_client_, church_config, settings):
-        from unittest.mock import patch
-
-        settings.EVOLUTION_API_URL = "https://fake.example.com"
-        settings.EVOLUTION_API_KEY = "global-key"
-        church_config.whatsapp_webhook_secret = "ja-existia"
-        church_config.save()
-
-        with patch("core.admin.whatsapp.criar_instancia", return_value={"hash": "novo-token"}) as mock_criar:
-            admin_client_.get(f"/admin/core/church/{church_config.pk}/whatsapp/criar-instancia/")
-
-        church_config.refresh_from_db()
-        assert church_config.whatsapp_webhook_secret == "ja-existia"
-        assert mock_criar.call_args.kwargs["webhook_secret"] == "ja-existia"
-
-    def test_create_instance_falls_back_to_webhook_config_when_already_exists(
-        self, admin_client_, church_config, settings
-    ):
-        """Confirmado ao vivo contra um servidor Evolution real: recriar
-        uma instância já existente (já conectada) devolve 403 "already in
-        use" — a view não pode tratar isso como falha, senão ninguém
-        conseguiria reconfigurar o webhook de uma igreja que já conectou
-        o WhatsApp antes dessa correção existir."""
-        import requests
-        from unittest.mock import patch, Mock
-
-        settings.EVOLUTION_API_URL = "https://fake.example.com"
-        settings.EVOLUTION_API_KEY = "global-key"
-        church_config.whatsapp_webhook_secret = ""
-        church_config.save()
-
-        fake_response = Mock(status_code=403, text='{"response":{"message":["already in use"]}}')
-        http_error = requests.HTTPError(response=fake_response)
-
-        with patch("core.admin.whatsapp.criar_instancia", side_effect=http_error), \
-             patch("core.admin.whatsapp.configurar_webhook") as mock_configurar:
-            response = admin_client_.get(f"/admin/core/church/{church_config.pk}/whatsapp/criar-instancia/")
-
-        assert response.status_code == 302
-        mock_configurar.assert_called_once()
-        church_config.refresh_from_db()
-        assert church_config.whatsapp_webhook_secret  # segredo foi gerado mesmo com a instância já existindo
-
-
-@pytest.mark.django_db
 class TestManualView:
     """Manual de configuração dentro do próprio app (pedido do usuário —
     antes só existia como artifact fora do sistema). Visível pra
@@ -514,9 +431,10 @@ class TestSettingsView:
         assert church_config.admin_alert_emails == "dono@example.com, secretaria@example.com"
 
     def test_settings_form_ignores_posted_technical_whatsapp_fields(self, pastor_client, church_config):
-        """A igreja não pode alterar a conexão Evolution API (infra do dono)
-        nem enviando os campos direto no POST — eles simplesmente não
-        existem em `ChurchConfigForm.Meta.fields`."""
+        """A igreja não pode alterar a conexão Evolution API (infra do dono,
+        vive em `notifications.WhatsAppInstance` agora) nem enviando
+        campos técnicos direto no POST — eles simplesmente não existem
+        em `ChurchConfigForm.Meta.fields` (nem no model `Church` mais)."""
         response = pastor_client.post("/configuracoes/", {
             "name": "Igreja Nova",
             "pastor_name": "Pastor Teste",
@@ -534,9 +452,8 @@ class TestSettingsView:
         })
         assert response.status_code == 302
         church_config.refresh_from_db()
-        assert church_config.whatsapp_api_url != "https://malicious.example.com"
-        assert church_config.whatsapp_api_key != "hacked-key"
-        assert church_config.whatsapp_instance != "hacked-instance"
+        assert not hasattr(church_config, "whatsapp_api_url")
+        assert not hasattr(church_config, "whatsapp_instance")
 
 
 class TestHealthCheck:

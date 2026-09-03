@@ -6,7 +6,14 @@ import pytest
 from django.core.management import call_command
 from django.utils import timezone
 
-from notifications.models import EmailMessage, MessageTemplate, SMSMessage, WhatsAppMessage, WhatsAppMetaTemplate
+from notifications.models import (
+    EmailMessage,
+    MessageTemplate,
+    SMSMessage,
+    WhatsAppInstance,
+    WhatsAppMessage,
+    WhatsAppMetaTemplate,
+)
 from notifications.views import normalize_phone
 from people.models import Department, Person
 
@@ -420,20 +427,57 @@ class TestWhatsAppConnectionInApp:
         response = pastor_client.get("/mensagens/whatsapp/")
         assert response.status_code == 200
 
-    def test_connection_page_shows_only_connect_disconnect_no_technical_fields(self, pastor_client, church_config):
+    def test_connection_page_shows_no_technical_fields(self, pastor_client, church_config):
         response = pastor_client.get("/mensagens/whatsapp/")
         assert b"whatsapp_api_url" not in response.content
-        assert b"whatsapp_instance" not in response.content
         assert b"apikey" not in response.content.lower()
 
-    def test_connect_without_config_shows_error(self, pastor_client, church_config):
-        response = pastor_client.post("/mensagens/whatsapp/conectar/")
-        assert response.status_code == 200
-        assert "não foi configurada" in response.content.decode()
-
-    def test_disconnect_without_config_redirects_with_error(self, pastor_client, church_config):
-        response = pastor_client.post("/mensagens/whatsapp/desconectar/")
+    def test_creates_instance(self, pastor_client, church):
+        response = pastor_client.post("/mensagens/whatsapp/numeros/novo/", {"name": "WhatsApp do pastor"})
         assert response.status_code == 302
+        instance = WhatsAppInstance.objects.get()
+        assert instance.name == "WhatsApp do pastor"
+        assert instance.is_default is True  # primeira instância já nasce padrão
+        assert instance.whatsapp_instance == f"igreja-{church.slug}"
+
+    def test_second_instance_gets_suffixed_name(self, pastor_client, church):
+        church.whatsapp_max_instancias = 2
+        church.save()
+        pastor_client.post("/mensagens/whatsapp/numeros/novo/", {"name": "WhatsApp da igreja"})
+        pastor_client.post("/mensagens/whatsapp/numeros/novo/", {"name": "WhatsApp do pastor"})
+        segunda = WhatsAppInstance.objects.get(name="WhatsApp do pastor")
+        assert segunda.whatsapp_instance == f"igreja-{church.slug}-2"
+        assert segunda.is_default is False
+
+    def test_cannot_create_beyond_limit(self, pastor_client, church):
+        church.whatsapp_max_instancias = 1
+        church.save()
+        WhatsAppInstance.objects.create(church=church, name="Já existe")
+        response = pastor_client.post("/mensagens/whatsapp/numeros/novo/", {"name": "Segunda"})
+        assert response.status_code == 302
+        assert WhatsAppInstance.objects.count() == 1
+
+    def test_connect_without_evolution_configured_shows_error(self, pastor_client, church):
+        instance = WhatsAppInstance.objects.create(church=church, name="WhatsApp da igreja")
+        response = pastor_client.post(f"/mensagens/whatsapp/numeros/{instance.pk}/conectar/", follow=True)
+        assert "Não consegui gerar o QR code" in response.content.decode()
+
+    def test_disconnect_redirects(self, pastor_client, church):
+        instance = WhatsAppInstance.objects.create(church=church, name="WhatsApp da igreja")
+        response = pastor_client.post(f"/mensagens/whatsapp/numeros/{instance.pk}/desconectar/")
+        assert response.status_code == 302
+
+    def test_set_default(self, pastor_client, church):
+        primeira = WhatsAppInstance.objects.create(church=church, name="Primeira")
+        segunda = WhatsAppInstance.objects.create(church=church, name="Segunda")
+        assert primeira.is_default is True
+        assert segunda.is_default is False
+        response = pastor_client.post(f"/mensagens/whatsapp/numeros/{segunda.pk}/padrao/")
+        assert response.status_code == 302
+        primeira.refresh_from_db()
+        segunda.refresh_from_db()
+        assert segunda.is_default is True
+        assert primeira.is_default is False
 
     def test_member_cannot_access_connection_page(self, member_client):
         response = member_client.get("/mensagens/whatsapp/")
@@ -443,13 +487,13 @@ class TestWhatsAppConnectionInApp:
 @pytest.mark.django_db
 class TestWhatsAppGatedByEmailConfirmationAndPlan:
     """Fase 2 (confirmação de e-mail) e Fase 4 (plano) — dois motivos
-    diferentes pra bloquear a mesma tela de conectar WhatsApp."""
+    diferentes pra bloquear a conexão de uma instância."""
 
     def test_unconfirmed_email_blocks_connect(self, pastor_client, church):
         church.email_confirmed = False
         church.save()
-        response = pastor_client.post("/mensagens/whatsapp/conectar/")
-        assert response.status_code == 200
+        instance = WhatsAppInstance.objects.create(church=church, name="WhatsApp da igreja")
+        response = pastor_client.post(f"/mensagens/whatsapp/numeros/{instance.pk}/conectar/", follow=True)
         assert "Confirme o e-mail" in response.content.decode()
 
     def test_resend_confirmation_email_sends_one(self, pastor_client, pastor_user, church, mailoutbox):
@@ -481,8 +525,8 @@ class TestWhatsAppGatedByEmailConfirmationAndPlan:
         church.status = Church.Status.ACTIVE
         church.plano = Church.Plano.BASICO
         church.save()
-        response = pastor_client.post("/mensagens/whatsapp/conectar/")
-        assert response.status_code == 200
+        instance = WhatsAppInstance.objects.create(church=church, name="WhatsApp da igreja")
+        response = pastor_client.post(f"/mensagens/whatsapp/numeros/{instance.pk}/conectar/", follow=True)
         assert "não está incluído no seu plano" in response.content.decode()
 
     def test_pro_plan_passes_the_plan_gate(self, pastor_client, church):
@@ -492,15 +536,18 @@ class TestWhatsAppGatedByEmailConfirmationAndPlan:
         church.status = Church.Status.ACTIVE
         church.plano = Church.Plano.PRO
         church.save()
-        response = pastor_client.post("/mensagens/whatsapp/conectar/")
-        # passa dos dois gates (e-mail + plano) e cai no "não configurado" —
-        # não tem EVOLUTION_API_URL/KEY nos testes.
-        assert response.status_code == 200
-        assert "não foi configurada" in response.content.decode()
+        instance = WhatsAppInstance.objects.create(church=church, name="WhatsApp da igreja")
+        response = pastor_client.post(f"/mensagens/whatsapp/numeros/{instance.pk}/conectar/", follow=True)
+        # passa dos dois gates (e-mail + plano) — sem EVOLUTION_API_URL nos
+        # testes, tenta e mostra erro de QR code (não mais "plano"/"e-mail").
+        assert "não está incluído no seu plano" not in response.content.decode()
+        assert "Confirme o e-mail" not in response.content.decode()
 
-    def test_member_cannot_connect_or_disconnect(self, member_client):
-        assert member_client.post("/mensagens/whatsapp/conectar/").status_code == 403
-        assert member_client.post("/mensagens/whatsapp/desconectar/").status_code == 403
+    def test_member_cannot_connect_or_disconnect(self, member_client, church_config):
+        instancia = WhatsAppInstance.objects.create(church=church_config, name="Teste")
+        assert member_client.post("/mensagens/whatsapp/numeros/novo/", {"name": "Outra"}).status_code == 403
+        assert member_client.post(f"/mensagens/whatsapp/numeros/{instancia.pk}/conectar/").status_code == 403
+        assert member_client.post(f"/mensagens/whatsapp/numeros/{instancia.pk}/desconectar/").status_code == 403
 
 
 @pytest.mark.django_db
@@ -510,8 +557,7 @@ class TestWhatsAppWebhook:
         assert response.status_code == 403
 
     def test_rejects_wrong_secret(self, client, church_config):
-        church_config.whatsapp_webhook_secret = "correct-secret"
-        church_config.save()
+        WhatsAppInstance.objects.create(church=church_config, name="X", webhook_secret="correct-secret")
         response = client.post(
             "/mensagens/webhook/evolution/", data="{}", content_type="application/json",
             HTTP_X_WEBHOOK_SECRET="wrong-secret",
@@ -519,10 +565,10 @@ class TestWhatsAppWebhook:
         assert response.status_code == 403
 
     def test_updates_delivery_status_on_valid_event(self, client, church_config):
-        church_config.whatsapp_webhook_secret = "correct-secret"
-        church_config.save()
+        instancia = WhatsAppInstance.objects.create(church=church_config, name="X", webhook_secret="correct-secret")
         msg = WhatsAppMessage.objects.create(
             church=church_config, phone="5562911110001", message="Oi", status="SENT", external_id="MSG-ID-123",
+            instance=instancia,
         )
 
         payload = {"event": "messages.update", "data": {"key": {"id": "MSG-ID-123"}, "update": {"status": "READ"}}}
@@ -536,10 +582,10 @@ class TestWhatsAppWebhook:
         assert msg.read_at is not None
 
     def test_unmapped_status_is_ignored_without_error(self, client, church_config):
-        church_config.whatsapp_webhook_secret = "correct-secret"
-        church_config.save()
+        instancia = WhatsAppInstance.objects.create(church=church_config, name="X", webhook_secret="correct-secret")
         WhatsAppMessage.objects.create(
-            church=church_config, phone="5562911110001", message="Oi", status="SENT", external_id="MSG-ID-999"
+            church=church_config, phone="5562911110001", message="Oi", status="SENT", external_id="MSG-ID-999",
+            instance=instancia,
         )
 
         payload = {"event": "messages.update", "data": {"key": {"id": "MSG-ID-999"}, "update": {"status": "SERVER_ACK"}}}
@@ -556,10 +602,10 @@ class TestWhatsAppWebhook:
         aninhar em `key`/`update` (diferente do que a doc pública sugeria
         e do formato usado nos testes acima, mantidos por compatibilidade
         com uma versão que aninhe)."""
-        church_config.whatsapp_webhook_secret = "correct-secret"
-        church_config.save()
+        instancia = WhatsAppInstance.objects.create(church=church_config, name="X", webhook_secret="correct-secret")
         msg = WhatsAppMessage.objects.create(
             church=church_config, phone="5562911110001", message="Oi", status="SENT", external_id="MSG-ID-REAL",
+            instance=instancia,
         )
 
         payload = {
@@ -724,13 +770,15 @@ class TestVerificarConexaoWhatsAppCommand:
         # `whatsapp_api_url`/`whatsapp_api_key` viraram propriedades lendo
         # de settings (servidor Evolution compartilhado da plataforma) —
         # não são mais campos da igreja, então "configurar" no teste
-        # significa mexer em `settings`, não em `church_config` direto.
+        # significa mexer em `settings` + criar uma `WhatsAppInstance`.
         settings.EVOLUTION_API_URL = "https://fake.example.com"
         settings.EVOLUTION_API_KEY = "global-key"
-        church_config.whatsapp_instance = "instancia-teste"
-        church_config.whatsapp_instance_token = "token-teste"
         church_config.admin_alert_emails = alert_emails
         church_config.save()
+        return WhatsAppInstance.objects.create(
+            church=church_config, name="WhatsApp da igreja",
+            whatsapp_instance="instancia-teste", whatsapp_instance_token="token-teste",
+        )
 
     def _mock_status(self, state):
         return patch(
@@ -743,19 +791,21 @@ class TestVerificarConexaoWhatsAppCommand:
         assert len(mailoutbox) == 0
 
     def test_connected_sends_no_alert_and_clears_flag(self, settings, church_config, mailoutbox):
-        self._configure_connection(settings, church_config, alert_emails="dono@example.com")
-        church_config.whatsapp_disconnect_alert_sent = True
-        church_config.save()
+        instancia = self._configure_connection(settings, church_config, alert_emails="dono@example.com")
+        instancia.disconnect_alert_sent = True
+        instancia.save()
 
         with self._mock_status("open"):
             call_command("verificar_conexao_whatsapp")
 
-        church_config.refresh_from_db()
-        assert church_config.whatsapp_disconnect_alert_sent is False
+        instancia.refresh_from_db()
+        assert instancia.disconnect_alert_sent is False
         assert len(mailoutbox) == 0
 
     def test_disconnected_sends_exactly_one_alert_across_runs(self, settings, church_config, mailoutbox):
-        self._configure_connection(settings, church_config, alert_emails="dono@example.com, secretaria@example.com")
+        instancia = self._configure_connection(
+            settings, church_config, alert_emails="dono@example.com, secretaria@example.com"
+        )
 
         with self._mock_status("close"):
             call_command("verificar_conexao_whatsapp")
@@ -763,8 +813,8 @@ class TestVerificarConexaoWhatsAppCommand:
 
         assert len(mailoutbox) == 1
         assert set(mailoutbox[0].to) == {"dono@example.com", "secretaria@example.com"}
-        church_config.refresh_from_db()
-        assert church_config.whatsapp_disconnect_alert_sent is True
+        instancia.refresh_from_db()
+        assert instancia.disconnect_alert_sent is True
 
     def test_disconnected_without_alert_email_sends_nothing(self, settings, church_config, mailoutbox):
         self._configure_connection(settings, church_config, alert_emails="")
@@ -784,6 +834,34 @@ class TestVerificarConexaoWhatsAppCommand:
             call_command("verificar_conexao_whatsapp")
 
         assert len(mailoutbox) == 1
+
+    def test_two_instances_alert_independently(self, settings, church_config, mailoutbox):
+        settings.EVOLUTION_API_URL = "https://fake.example.com"
+        settings.EVOLUTION_API_KEY = "global-key"
+        church_config.admin_alert_emails = "dono@example.com"
+        church_config.save()
+        conectada = WhatsAppInstance.objects.create(
+            church=church_config, name="Conectada", whatsapp_instance="i1", whatsapp_instance_token="t1",
+        )
+        caida = WhatsAppInstance.objects.create(
+            church=church_config, name="Caída", whatsapp_instance="i2", whatsapp_instance_token="t2",
+        )
+
+        def fake_status(instance):
+            return {"state": "open" if instance.pk == conectada.pk else "close"}
+
+        with patch(
+            "notifications.management.commands.verificar_conexao_whatsapp.obter_status_conexao",
+            side_effect=fake_status,
+        ):
+            call_command("verificar_conexao_whatsapp")
+
+        conectada.refresh_from_db()
+        caida.refresh_from_db()
+        assert conectada.disconnect_alert_sent is False
+        assert caida.disconnect_alert_sent is True
+        assert len(mailoutbox) == 1
+        assert "Caída" in mailoutbox[0].subject
 
 
 @pytest.mark.django_db
@@ -1180,3 +1258,90 @@ class TestWhatsAppMetaTemplateSubmitAndStatus:
         assert response.status_code == 302
         template.refresh_from_db()
         assert template.status == WhatsAppMetaTemplate.Status.DRAFT
+
+
+@pytest.fixture
+def admin_client_(client, django_user_model):
+    from accounts.models import TOTPDevice
+    from accounts.totp import generate_secret
+
+    superuser = django_user_model.objects.create_superuser(username="root", password="x", email="")
+    # `is_staff` agora exige 2FA confirmado pra passar em
+    # `admin.site.has_permission` (ver accounts/apps.py) — sem isso, todo
+    # teste que usa esta fixture pra acessar o admin cairia no redirect
+    # de 2FA pendente em vez de chegar na página testada.
+    TOTPDevice.objects.create(user=superuser, secret=generate_secret(), confirmed=True)
+    client.force_login(superuser)
+    return client
+
+
+@pytest.mark.django_db
+class TestWhatsAppInstanceAdmin:
+    """Provisionamento no servidor Evolution compartilhado — mesmas
+    ações que já existiam em `core.admin.ChurchConfigAdmin` antes de
+    uma igreja poder ter mais de um número, agora por INSTÂNCIA."""
+
+    def test_change_form_renders_with_connection_panel(self, admin_client_, church_config):
+        instance = WhatsAppInstance.objects.create(church=church_config, name="WhatsApp da igreja")
+        response = admin_client_.get(f"/admin/notifications/whatsappinstance/{instance.pk}/change/")
+        assert response.status_code == 200
+        assert b"Criar/recriar inst\xc3\xa2ncia" in response.content
+
+    def test_create_instance_without_url_shows_error_and_redirects(self, admin_client_, church_config):
+        instance = WhatsAppInstance.objects.create(church=church_config, name="X")
+        response = admin_client_.get(f"/admin/notifications/whatsappinstance/{instance.pk}/whatsapp/criar-instancia/")
+        assert response.status_code == 302
+
+    def test_qrcode_without_config_redirects_with_error(self, admin_client_, church_config):
+        instance = WhatsAppInstance.objects.create(church=church_config, name="X")
+        response = admin_client_.get(f"/admin/notifications/whatsappinstance/{instance.pk}/whatsapp/qrcode/")
+        assert response.status_code == 302
+
+    def test_disconnect_without_config_redirects_with_error(self, admin_client_, church_config):
+        instance = WhatsAppInstance.objects.create(church=church_config, name="X")
+        response = admin_client_.get(f"/admin/notifications/whatsappinstance/{instance.pk}/whatsapp/desconectar/")
+        assert response.status_code == 302
+
+    def test_create_instance_generates_webhook_secret_and_configures_it(self, admin_client_, church_config, settings):
+        """`criar_instancia()` embute a configuração do webhook de
+        confirmação de entrega direto na chamada de criação — cada
+        `WhatsAppInstance` já nasce com `webhook_secret` preenchido
+        (gerado no `save()`), diferente da `Church` antiga que gerava
+        isso só na hora de criar a instância."""
+        settings.EVOLUTION_API_URL = "https://fake.example.com"
+        settings.EVOLUTION_API_KEY = "global-key"
+        instance = WhatsAppInstance.objects.create(church=church_config, name="X")
+        assert instance.webhook_secret  # já nasce preenchido
+
+        with patch("notifications.admin.whatsapp.criar_instancia", return_value={"hash": "novo-token"}) as mock_criar:
+            response = admin_client_.get(f"/admin/notifications/whatsappinstance/{instance.pk}/whatsapp/criar-instancia/")
+        assert response.status_code == 302
+
+        _, kwargs = mock_criar.call_args
+        assert kwargs["webhook_secret"] == instance.webhook_secret
+        assert kwargs["webhook_url"].endswith("/mensagens/webhook/evolution/")
+
+    def test_create_instance_falls_back_to_webhook_config_when_already_exists(
+        self, admin_client_, church_config, settings
+    ):
+        """Confirmado ao vivo contra um servidor Evolution real: recriar
+        uma instância já existente (já conectada) devolve 403 "already in
+        use" — a view não pode tratar isso como falha, senão ninguém
+        conseguiria reconfigurar o webhook de uma instância que já
+        conectou o WhatsApp antes dessa correção existir."""
+        import requests
+        from unittest.mock import Mock
+
+        settings.EVOLUTION_API_URL = "https://fake.example.com"
+        settings.EVOLUTION_API_KEY = "global-key"
+        instance = WhatsAppInstance.objects.create(church=church_config, name="X")
+
+        fake_response = Mock(status_code=403, text='{"response":{"message":["already in use"]}}')
+        http_error = requests.HTTPError(response=fake_response)
+
+        with patch("notifications.admin.whatsapp.criar_instancia", side_effect=http_error), \
+             patch("notifications.admin.whatsapp.configurar_webhook") as mock_configurar:
+            response = admin_client_.get(f"/admin/notifications/whatsappinstance/{instance.pk}/whatsapp/criar-instancia/")
+
+        assert response.status_code == 302
+        mock_configurar.assert_called_once()

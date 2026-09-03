@@ -22,7 +22,7 @@ from escalas.models import (
     Song,
     TrocaEscala,
 )
-from notifications.models import WhatsAppMessage
+from notifications.models import WhatsAppInstance, WhatsAppMessage
 from people.models import Person
 
 MESES_PT = [
@@ -301,6 +301,7 @@ def _sync_voluntarios(request, escala, pessoas, roles=None, scheduled_for=None):
     existentes = {ev.person_id: ev for ev in escala.voluntarios.all()}
     selecionados_ids = {p.pk for p in pessoas}
 
+    instancia_padrao = WhatsAppInstance.padrao()
     novas_mensagens = []
     for pessoa in pessoas:
         role = roles.get(pessoa.pk, "")
@@ -315,6 +316,7 @@ def _sync_voluntarios(request, escala, pessoas, roles=None, scheduled_for=None):
         texto = _mensagem_escala(request.church, pessoa, escala, role, url)
         novas_mensagens.append(WhatsAppMessage(
             church=request.church, person=pessoa, phone=pessoa.whatsapp_number, message=texto,
+            instance=instancia_padrao,
             campaign_label=f"Escala-{escala.pk}", scheduled_for=scheduled_for,
         ))
 
@@ -390,9 +392,16 @@ class PedirTrocaView(View):
                 f"{voluntario.person.full_name} não vai poder servir em {escala.department.name} — "
                 f"{escala.date:%d/%m}{horario} e está passando a vez. Pode ir no lugar? {url}"
             )
+            # `todas_as_igrejas` de propósito — view pública por token, sem
+            # `tenant_context` setado (mesmo motivo do `Person.todas_as_igrejas`
+            # já usado logo abaixo, em `AceitarTrocaView`).
+            instancia_padrao = WhatsAppInstance.todas_as_igrejas.filter(
+                church=voluntario.church, is_default=True
+            ).first()
             WhatsAppMessage.objects.bulk_create([
                 WhatsAppMessage(
                     church=voluntario.church, person=colega, phone=colega.whatsapp_number, message=texto,
+                    instance=instancia_padrao,
                     campaign_label=f"Troca de escala-{troca.pk}",
                 )
                 for colega in colegas
@@ -448,8 +457,10 @@ class AceitarTrocaView(View):
         confirm_url = request.build_absolute_uri(reverse("escalas:confirmar", args=[voluntario.confirm_token]))
         escala = voluntario.escala
         texto = _mensagem_escala(troca.church, aceitante, escala, voluntario.role, confirm_url)
+        instancia_padrao = WhatsAppInstance.todas_as_igrejas.filter(church=troca.church, is_default=True).first()
         WhatsAppMessage.objects.create(
             church=troca.church, person=aceitante, phone=aceitante.whatsapp_number, message=texto,
+            instance=instancia_padrao,
             campaign_label=f"Troca de escala-{troca.pk}",
         )
         return render(request, self.template_name, {"troca": troca, "aceita_agora": True})

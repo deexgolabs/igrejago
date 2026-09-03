@@ -10,6 +10,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import F
 from django.http import HttpResponse, HttpResponseBadRequest, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
@@ -21,12 +22,20 @@ from core.billing import whatsapp_liberado
 from core.models import Church
 from core.tenancy import TenantFormMixin
 from core.views import enviar_email_confirmacao
-from notifications.forms import MessageTemplateForm, ScheduledMessageForm, WhatsAppMetaTemplateForm, WhatsAppProviderForm
+from notifications.forms import (
+    MessageTemplateForm,
+    ScheduledMessageForm,
+    WhatsAppInstanceCreateForm,
+    WhatsAppInstanceForm,
+    WhatsAppMetaTemplateForm,
+    WhatsAppProviderForm,
+)
 from notifications.models import (
     EmailMessage,
     MessageTemplate,
     PushSubscription,
     SMSMessage,
+    WhatsAppInstance,
     WhatsAppMessage,
     WhatsAppMetaTemplate,
 )
@@ -61,11 +70,13 @@ class ScheduledMessageCreateView(CanManagePeopleMixin, View):
                 "form": form, "templates": MessageTemplate.objects.all(),
             })
 
+        instance = form.cleaned_data.get("instance") or WhatsAppInstance.padrao()
         WhatsAppMessage.objects.create(
             church=request.church,
             person=form.cleaned_data.get("person"),
             phone=normalize_phone(form.cleaned_data["phone"]),
             message=form.cleaned_data["message"],
+            instance=instance,
             meta_template=form.cleaned_data.get("meta_template"),
             meta_template_values=form.cleaned_data.get("meta_template_values_resolvidos", []),
             scheduled_for=form.cleaned_data.get("scheduled_for"),
@@ -228,33 +239,45 @@ class MessageTemplateDeleteView(IsChurchManagerMixin, DeleteView):
         return super().form_valid(form)
 
 
+def _status_instancia(instancia):
+    """Mesmo princípio de sempre — checa ao vivo, `None` quando não dá
+    pra saber (nunca vira "erro" pra quem usa a tela)."""
+    if not instancia.esta_configurada:
+        return None
+    try:
+        data = whatsapp.obter_status_conexao(instancia)
+        estado = data.get("state") or data.get("instance", {}).get("state") or ""
+        return estado == "open"
+    except Exception:
+        return None
+
+
 def _connection_context(request, **extra):
-    """Estado da tela de Conectar/Desconectar — a igreja nunca vê URL,
-    chave ou nome de instância da Evolution aqui (isso é config do
-    dono, só no Django admin); só se está configurado, conectado ou
-    não, e o QR code quando acabou de ser gerado. Provider-aware desde
-    a Meta Cloud API: Evolution tem um passo de "conectar" de verdade
-    (QR/pareamento), checado ao vivo; Meta não tem — lá "conectado" é
-    só "as credenciais estão preenchidas", sem chamada extra."""
+    """Estado da tela de Conectar — provider-aware: Meta Cloud continua
+    um número só (sem lista, sem conceito de instância); Evolution vira
+    LISTA de `WhatsAppInstance` (uma igreja pode ter mais de um número —
+    ex.: "WhatsApp da igreja" + "WhatsApp do pastor" —, cada uma com o
+    próprio status checado ao vivo)."""
     config = request.church
-    connected = None
-    if config.whatsapp_provider == Church.WhatsAppProvider.META_CLOUD:
-        connected = True if config.whatsapp_api_configured else None
-    elif config.whatsapp_api_configured:
-        try:
-            data = whatsapp.obter_status_conexao(config)
-            estado = data.get("state") or data.get("instance", {}).get("state") or ""
-            connected = estado == "open"
-        except Exception:
-            connected = None  # não deu pra saber — trata como "desconhecido", não como erro na tela
+    is_meta_cloud = config.whatsapp_provider == Church.WhatsAppProvider.META_CLOUD
     context = {
-        "configured": config.whatsapp_api_configured, "connected": connected,
         "email_confirmed": config.email_confirmed,
         "whatsapp_liberado": whatsapp_liberado(config),
         "provider": config.whatsapp_provider,
-        "is_meta_cloud": config.whatsapp_provider == Church.WhatsAppProvider.META_CLOUD,
+        "is_meta_cloud": is_meta_cloud,
         "provider_form": WhatsAppProviderForm(instance=config),
     }
+    if is_meta_cloud:
+        context["configured"] = config.whatsapp_api_configured
+        context["connected"] = True if config.whatsapp_api_configured else None
+    else:
+        instances = list(WhatsAppInstance.objects.all())
+        for instancia in instances:
+            instancia.connected = _status_instancia(instancia)
+        context["instances"] = instances
+        context["max_instancias"] = config.whatsapp_max_instancias
+        context["pode_adicionar_instancia"] = len(instances) < config.whatsapp_max_instancias
+        context["instance_form"] = WhatsAppInstanceCreateForm()
     context.update(extra)
     return context
 
@@ -283,11 +306,11 @@ class PushSubscribeView(LoginRequiredMixin, View):
 
 
 class WhatsAppConnectionView(IsChurchManagerMixin, View):
-    """A tela onde o pastor/secretaria conecta o número de WhatsApp da
-    igreja — só "Conectar" (que já mostra o QR code na hora) e
-    "Desconectar", sem nenhum campo técnico. Isso é infraestrutura
-    configurada pelo dono do sistema via Django admin
-    (`core/admin.py::ChurchConfigAdmin`)."""
+    """A tela onde o pastor/secretaria gerencia os números de WhatsApp da
+    igreja — no canal Evolution, uma LISTA (uma igreja pode ter mais de
+    um número — ex.: "WhatsApp da igreja" + "WhatsApp do pastor" —,
+    limite em `Church.whatsapp_max_instancias`); no canal Meta Cloud,
+    continua um número só, sem lista."""
 
     template_name = "notifications/whatsapp_connection.html"
 
@@ -295,57 +318,110 @@ class WhatsAppConnectionView(IsChurchManagerMixin, View):
         return render(request, self.template_name, _connection_context(request))
 
 
-class WhatsAppConnectView(IsChurchManagerMixin, View):
-    """Botão único "Conectar": tenta pegar o QR code direto (instância já
-    existe na maioria dos casos, criada uma vez pelo dono); se falhar
-    (primeira vez, instância ainda não existe), cria a instância e tenta
-    de novo. Renderiza o QR code na própria tela em vez de redirecionar
-    pra uma página separada, já que ele expira em minutos e a igreja só
-    precisa desse fluxo simples."""
+class WhatsAppInstanceCreateView(IsChurchManagerMixin, View):
+    """Adiciona um número novo — bloqueado além de
+    `Church.whatsapp_max_instancias` (ajuste manual por igreja, sem
+    regra fixa de plano ainda)."""
 
     def post(self, request):
         config = request.church
-        if config.whatsapp_provider == Church.WhatsAppProvider.META_CLOUD:
-            messages.error(request, "O canal atual é a API oficial da Meta — não tem QR code, só preencher as credenciais acima.")
-            return render(request, WhatsAppConnectionView.template_name, _connection_context(request))
-        if not config.email_confirmed:
+        if WhatsAppInstance.objects.count() >= config.whatsapp_max_instancias:
             messages.error(
                 request,
-                "Confirme o e-mail da igreja (link enviado no cadastro) antes de conectar o WhatsApp.",
+                f"Limite de {config.whatsapp_max_instancias} número(s) de WhatsApp atingido — "
+                "fale com o suporte pra aumentar.",
             )
-            return render(request, WhatsAppConnectionView.template_name, _connection_context(request))
+            return redirect("notifications:whatsapp_connection")
+
+        form = WhatsAppInstanceCreateForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Não deu pra criar — confira os campos.")
+            return redirect("notifications:whatsapp_connection")
+
+        instance = form.save(commit=False)
+        instance.church = config
+        instance.save()
+        messages.success(request, f'"{instance.name}" criado — clique em "Conectar" pra escanear o QR code.')
+        return redirect("notifications:whatsapp_connection")
+
+
+class WhatsAppInstanceConnectView(IsChurchManagerMixin, View):
+    """Mesmo botão único "Conectar" de sempre (QR code na hora), agora
+    por instância — cria a instância no servidor Evolution compartilhado
+    (com o webhook já embutido, `instance.webhook_secret` já existe
+    desde a criação da linha) se ainda não existir, e busca o QR code."""
+
+    template_name = "notifications/whatsapp_instance_qr.html"
+
+    def post(self, request, pk):
+        config = request.church
+        instance = get_object_or_404(WhatsAppInstance, pk=pk)
+        if not config.email_confirmed:
+            messages.error(request, "Confirme o e-mail da igreja (link enviado no cadastro) antes de conectar o WhatsApp.")
+            return redirect("notifications:whatsapp_connection")
         if not whatsapp_liberado(config):
             messages.error(
                 request,
                 "O envio de WhatsApp não está incluído no seu plano atual — assine o plano Pro em Configurações → Assinatura.",
             )
-            return render(request, WhatsAppConnectionView.template_name, _connection_context(request))
-        if not config.whatsapp_api_configured:
-            messages.error(
-                request,
-                "A conexão do WhatsApp ainda não foi configurada pelo responsável técnico do sistema.",
-            )
-            return render(request, WhatsAppConnectionView.template_name, _connection_context(request))
+            return redirect("notifications:whatsapp_connection")
 
         try:
-            data = whatsapp.obter_qrcode(config)
+            data = whatsapp.obter_qrcode(instance)
         except Exception:
             try:
-                whatsapp.criar_instancia(config, instance_name=config.whatsapp_instance)
-                data = whatsapp.obter_qrcode(config)
+                whatsapp.criar_instancia(
+                    instance, instance_name=instance.whatsapp_instance,
+                    webhook_url=request.build_absolute_uri(reverse("notifications:webhook")),
+                    webhook_secret=instance.webhook_secret,
+                )
+                data = whatsapp.obter_qrcode(instance)
             except Exception as exc:
                 messages.error(request, f"Não consegui gerar o QR code: {exc}")
-                return render(request, WhatsAppConnectionView.template_name, _connection_context(request))
+                return redirect("notifications:whatsapp_connection")
 
         qr_base64 = data.get("base64") or data.get("qrcode", {}).get("base64", "")
         if not qr_base64:
             messages.warning(request, "Não recebi um QR code válido — tente novamente em alguns segundos.")
-            return render(request, WhatsAppConnectionView.template_name, _connection_context(request))
+            return redirect("notifications:whatsapp_connection")
 
         img_src = qr_base64 if qr_base64.startswith("data:") else f"data:image/png;base64,{qr_base64}"
-        return render(
-            request, WhatsAppConnectionView.template_name, _connection_context(request, img_src=img_src)
-        )
+        return render(request, self.template_name, {"instance": instance, "img_src": img_src})
+
+
+class WhatsAppInstanceSetDefaultView(IsChurchManagerMixin, View):
+    """Define qual instância os avisos automáticos (escala, lembrete,
+    jornada...) usam quando ninguém escolhe explicitamente — o próprio
+    `save()` de `WhatsAppInstance` já desmarca as outras da mesma
+    igreja."""
+
+    def post(self, request, pk):
+        instance = get_object_or_404(WhatsAppInstance, pk=pk)
+        instance.is_default = True
+        instance.save()
+        messages.success(request, f'"{instance.name}" agora é a instância padrão.')
+        return redirect("notifications:whatsapp_connection")
+
+
+class WhatsAppInstanceUpdateView(IsChurchManagerMixin, UpdateView):
+    model = WhatsAppInstance
+    form_class = WhatsAppInstanceForm
+    template_name = "notifications/whatsapp_instance_form.html"
+    success_url = "/mensagens/whatsapp/"
+
+    def form_valid(self, form):
+        messages.success(self.request, "Número atualizado.")
+        return super().form_valid(form)
+
+
+class WhatsAppInstanceDeleteView(IsChurchManagerMixin, DeleteView):
+    model = WhatsAppInstance
+    template_name = "notifications/whatsapp_instance_confirm_delete.html"
+    success_url = "/mensagens/whatsapp/"
+
+    def form_valid(self, form):
+        messages.success(self.request, "Número removido — mensagens já enfileiradas por ele ficam sem instância e caem na padrão.")
+        return super().form_valid(form)
 
 
 class WhatsAppMetaConfigView(IsChurchManagerMixin, View):
@@ -543,12 +619,12 @@ class ResendConfirmationEmailView(IsChurchManagerMixin, View):
         return redirect("notifications:whatsapp_connection")
 
 
-class WhatsAppDisconnectView(IsChurchManagerMixin, View):
-    def post(self, request):
-        config = request.church
+class WhatsAppInstanceDisconnectView(IsChurchManagerMixin, View):
+    def post(self, request, pk):
+        instance = get_object_or_404(WhatsAppInstance, pk=pk)
         try:
-            whatsapp.desconectar_instancia(config)
-            messages.success(request, "WhatsApp desconectado.")
+            whatsapp.desconectar_instancia(instance)
+            messages.success(request, f'"{instance.name}" desconectado.')
         except Exception as exc:
             messages.error(request, f"Falha ao desconectar: {exc}")
         return redirect("notifications:whatsapp_connection")
@@ -575,20 +651,22 @@ _DELIVERY_STATUS_MAP = {
 class WhatsAppWebhookView(View):
     """Recebe o evento `messages.update` da Evolution API (confirmação de
     entrega/leitura) e atualiza o `WhatsAppMessage` correspondente pelo
-    `external_id`. Servidor Evolution único, uma instância por igreja — o
-    cabeçalho `X-Webhook-Secret` (batendo com `Church.whatsapp_webhook_secret`)
-    é o que diz DE QUAL igreja é o evento, já que não há usuário logado
-    nem slug na URL do webhook. Sem segredo configurado ou sem igreja
-    correspondente, rejeita tudo — não existe um modo "aberto" por
-    padrão."""
+    `external_id`. Servidor Evolution único, compartilhado por várias
+    instâncias (uma igreja pode ter mais de uma) — o cabeçalho
+    `X-Webhook-Secret` (batendo com `WhatsAppInstance.webhook_secret`,
+    não mais `Church`) é o que diz DE QUAL instância/igreja é o evento,
+    já que não há usuário logado nem slug na URL do webhook. Sem segredo
+    configurado ou sem instância correspondente, rejeita tudo — não
+    existe um modo "aberto" por padrão."""
 
     def post(self, request):
         secret = request.headers.get("X-Webhook-Secret")
         if not secret:
             return HttpResponseForbidden("webhook not configured")
-        config = Church.objects.filter(whatsapp_webhook_secret=secret).first()
-        if config is None:
+        instance = WhatsAppInstance.todas_as_igrejas.select_related("church").filter(webhook_secret=secret).first()
+        if instance is None:
             return HttpResponseForbidden("invalid secret")
+        config = instance.church
 
         try:
             payload = json.loads(request.body)
@@ -610,7 +688,10 @@ class WhatsAppWebhookView(View):
         if delivery_status is None:
             return HttpResponse(status=200)  # status que não mapeamos (ex.: SERVER_ACK) — ignora
 
-        updated = WhatsAppMessage.todas_as_igrejas.filter(external_id=message_id, church=config)
+        # `instance=instance` (além de `church`) é mais preciso do que só
+        # `external_id` — evita, em tese, colisão entre 2 instâncias da
+        # mesma igreja (cada gateway numera IDs à sua maneira).
+        updated = WhatsAppMessage.todas_as_igrejas.filter(external_id=message_id, church=config, instance=instance)
         now = timezone.now()
         if delivery_status == WhatsAppMessage.DeliveryStatus.DELIVERED:
             updated.update(delivery_status=delivery_status, delivered_at=now)

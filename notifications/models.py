@@ -1,3 +1,4 @@
+import secrets
 import uuid
 
 from django.conf import settings
@@ -5,6 +6,116 @@ from django.core.validators import RegexValidator
 from django.db import models
 
 from core.tenancy import TenantModel
+
+
+class WhatsAppInstance(TenantModel):
+    """UM número de WhatsApp conectado via Evolution API — uma igreja
+    pode ter mais de um (ex.: "WhatsApp da igreja" + "WhatsApp do
+    pastor"), cada um com o PRÓPRIO intervalo/lote de envio, pra um
+    número não "pegar carona" no limite do outro. Conceito exclusivo do
+    canal Evolution — a API oficial da Meta continua com um número só
+    por igreja (`Church.whatsapp_meta_*`), sem instância nenhuma aqui.
+
+    As propriedades abaixo espelham DE PROPÓSITO as que já existiam em
+    `Church` (`whatsapp_api_url`/`whatsapp_api_key`/`whatsapp_send_key`)
+    — é isso que deixa `core/whatsapp.py::criar_instancia`/
+    `obter_qrcode`/`obter_status_conexao`/`desconectar_instancia`
+    funcionando SEM NENHUMA mudança, só recebendo um `WhatsAppInstance`
+    no lugar de `Church`."""
+
+    name = models.CharField(
+        "Nome", max_length=100, default="WhatsApp da igreja",
+        help_text="Só pra identificar esse número nas telas (ex.: \"WhatsApp da igreja\", \"WhatsApp do pastor\").",
+    )
+    whatsapp_instance = models.CharField(
+        "Nome da instância", max_length=100, unique=True, blank=True,
+        help_text="Nome real no servidor Evolution (compartilhado por todas as igrejas) — gerado sozinho.",
+    )
+    whatsapp_instance_token = models.CharField(
+        "Chave da instância", max_length=200, blank=True,
+        help_text="Preenchida automaticamente ao criar a instância pelo admin.",
+    )
+    webhook_secret = models.CharField(
+        "Segredo do webhook", max_length=100, blank=True,
+        help_text="Conferido no cabeçalho X-Webhook-Secret pra confirmar de qual instância é o evento de "
+                   "confirmação de entrega — gerado sozinho.",
+    )
+    send_interval_seconds = models.PositiveIntegerField(
+        "Intervalo entre envios (segundos)", default=6,
+        help_text="Espera entre uma mensagem e outra desta instância — mandar tudo de uma vez é o "
+                   "jeito mais rápido do WhatsApp marcar o número como spam. 5-10s é um valor seguro.",
+    )
+    batch_size = models.PositiveIntegerField(
+        "Mensagens por execução da fila", default=30,
+        help_text="Limite de mensagens desta instância enviadas numa única chamada do comando "
+                   "processar_fila_whatsapp — o resto fica pra próxima execução do cron.",
+    )
+    max_retries = models.PositiveIntegerField(
+        "Tentativas antes de desistir", default=3,
+        help_text="Quantas vezes o processador da fila tenta reenviar uma mensagem desta instância que "
+                   "falhou antes de parar de tentar sozinho.",
+    )
+    is_default = models.BooleanField(
+        "Instância padrão", default=False,
+        help_text="Usada por avisos automáticos (escala, lembrete, jornada...) que não perguntam qual "
+                   "número usar — só uma instância por igreja pode ser a padrão.",
+    )
+    disconnect_alert_sent = models.BooleanField(
+        "Já avisou sobre desconexão atual", default=False,
+        help_text="Controle interno de verificar_conexao_whatsapp — evita mandar e-mail novo a cada "
+                   "execução do cron enquanto a mesma queda continua; zera sozinho quando reconectar.",
+    )
+    created_at = models.DateTimeField("Criada em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Instância de WhatsApp"
+        verbose_name_plural = "Instâncias de WhatsApp"
+        ordering = ["-is_default", "name"]
+
+    def __str__(self):
+        return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.whatsapp_instance:
+            base = f"igreja-{self.church.slug}"
+            outras = type(self).todas_as_igrejas.filter(church=self.church).exclude(pk=self.pk).count()
+            self.whatsapp_instance = base if outras == 0 else f"{base}-{outras + 1}"
+        if not self.webhook_secret:
+            self.webhook_secret = secrets.token_hex(32)
+        is_primeira = not type(self).todas_as_igrejas.filter(church=self.church).exclude(pk=self.pk).exists()
+        if is_primeira:
+            self.is_default = True
+        super().save(*args, **kwargs)
+        if self.is_default:
+            # Só uma padrão por igreja — desmarca as outras (fora do
+            # `save()` acima pra não recursar; um `.update()` direto
+            # não chama `save()` de novo).
+            type(self).todas_as_igrejas.filter(church=self.church).exclude(pk=self.pk).update(is_default=False)
+
+    @property
+    def whatsapp_api_url(self):
+        return settings.EVOLUTION_API_URL
+
+    @property
+    def whatsapp_api_key(self):
+        return settings.EVOLUTION_API_KEY
+
+    @property
+    def whatsapp_send_key(self):
+        return self.whatsapp_instance_token or settings.EVOLUTION_API_KEY
+
+    @property
+    def esta_configurada(self):
+        return bool(settings.EVOLUTION_API_URL and self.whatsapp_instance and self.whatsapp_send_key)
+
+    @classmethod
+    def padrao(cls):
+        """A instância usada por avisos automáticos (escala, lembrete,
+        jornada, formulário...) que não perguntam qual número usar —
+        `None` se a igreja (do tenant_context atual) ainda não conectou
+        nenhuma. Sempre dentro do `tenant_context` de quem chama, mesmo
+        princípio de `cls.objects` de sempre."""
+        return cls.objects.filter(is_default=True).first()
 
 
 class WhatsAppMessage(TenantModel):
@@ -58,6 +169,14 @@ class WhatsAppMessage(TenantModel):
     meta_template_values = models.JSONField(
         "Valores das variáveis do template", default=list, blank=True,
         help_text="Lista na ordem {{1}}, {{2}}... já resolvida (ex.: {nome} já virou o nome de verdade).",
+    )
+    instance = models.ForeignKey(
+        "notifications.WhatsAppInstance", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="mensagens",
+        verbose_name="Instância de WhatsApp",
+        help_text="Por qual número (Evolution API) esta mensagem sai — só faz sentido pra igrejas com "
+                   "mais de uma instância conectada; em branco, o processador da fila usa a instância "
+                   "padrão da igreja. Ignorado no canal oficial da Meta (só tem um número por igreja).",
     )
 
     status = models.CharField("Status", max_length=10, choices=Status.choices, default=Status.PENDING)

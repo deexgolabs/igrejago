@@ -16,7 +16,7 @@ from django.core.management.base import BaseCommand
 
 from core.models import Church
 from core.tenant_context import tenant_context
-from notifications.models import WhatsAppMessage
+from notifications.models import WhatsAppInstance, WhatsAppMessage
 from people.models import AutomacaoJornada, Person
 
 
@@ -36,6 +36,7 @@ class Command(BaseCommand):
     @staticmethod
     def _processar_igreja(church_config, today):
         to_create = []
+        instancia_padrao = WhatsAppInstance.padrao()
 
         for regra in AutomacaoJornada.objects.filter(ativo=True):
             alvo = today - timedelta(days=regra.dias_depois)
@@ -53,6 +54,7 @@ class Command(BaseCommand):
                 mensagem = regra.mensagem.format(nome=pessoa.full_name)
                 to_create.append(WhatsAppMessage(
                     church=church_config, person=pessoa, phone=pessoa.whatsapp_number, message=mensagem,
+                    instance=instancia_padrao,
                     campaign_label=campaign_label,
                 ))
 

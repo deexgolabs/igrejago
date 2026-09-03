@@ -1,14 +1,19 @@
 """Processa a fila de WhatsApp de TODAS as igrejas ativas, uma de cada
-vez: pega até `Church.whatsapp_batch_size` mensagens PENDING já vencidas
-(agendadas pro passado ou sem agendamento) + mensagens FAILED que ainda
-não bateram `whatsapp_max_retries`, e envia uma a uma, esperando
-`Church.whatsapp_send_interval_seconds` entre cada envio. Pensado pra
-rodar via cron a cada 1-5 minutos — cada execução processa um lote por
-igreja e sai; o resto (se sobrar) fica pra próxima.
+vez. Provider-aware: canal Meta Cloud continua um lote só por igreja
+(`Church.whatsapp_batch_size`/`whatsapp_send_interval_seconds`/
+`whatsapp_max_retries` — um número só, sem conceito de instância);
+canal Evolution processa CADA `WhatsAppInstance` da igreja
+separadamente, com o PRÓPRIO lote/intervalo/tentativas — uma igreja
+com "WhatsApp da igreja" + "WhatsApp do pastor" manda dos dois números
+em paralelo, cada um no seu próprio ritmo, sem um "pegar carona" no
+limite do outro. Pensado pra rodar via cron a cada 1-5 minutos — cada
+execução processa um lote por igreja/instância e sai; o resto (se
+sobrar) fica pra próxima.
 
 Cada igreja é processada dentro de `tenant_context(church)` — o mesmo
-`WhatsAppMessage.objects` de sempre já filtra sozinho pra igreja atual,
-sem precisar reescrever a query com `todas_as_igrejas` espalhado aqui.
+`WhatsAppMessage.objects`/`WhatsAppInstance.objects` de sempre já
+filtram sozinhos pra igreja atual, sem precisar reescrever a query com
+`todas_as_igrejas` espalhado aqui.
 
 Mandar um lote inteiro de uma vez, sem intervalo, é o jeito mais rápido de
 um número real ser marcado como spam/banido pelo WhatsApp — esse intervalo
@@ -26,7 +31,7 @@ from core.billing import whatsapp_liberado
 from core.models import Church
 from core.tenant_context import tenant_context
 from core.whatsapp import enviar_whatsapp
-from notifications.models import WhatsAppMessage
+from notifications.models import WhatsAppInstance, WhatsAppMessage
 
 
 class Command(BaseCommand):
@@ -41,12 +46,50 @@ class Command(BaseCommand):
             if not whatsapp_liberado(church_config):
                 self.stdout.write(f"[{church_config.name}] WhatsApp não incluído no plano — pulando.")
                 continue
-            # Sem WhatsApp configurado, `enviar_whatsapp()` já cai sozinho
-            # no fallback de console (ver core/whatsapp.py) — a fila
-            # continua sendo processada (e testável) sem credencial real,
-            # igual sempre foi antes da multi-tenência.
             with tenant_context(church_config):
-                sent, failed, emailed, total = self._processar_igreja(church_config)
+                if church_config.whatsapp_provider == Church.WhatsAppProvider.META_CLOUD:
+                    eligible = self._elegiveis(
+                        instance=None, max_retries=church_config.whatsapp_max_retries
+                    ).order_by("created_at")[: church_config.whatsapp_batch_size]
+                    sent, failed, emailed, total = self._processar_lote(
+                        church_config, eligible, instance=None,
+                        interval_seconds=church_config.whatsapp_send_interval_seconds,
+                        max_retries=church_config.whatsapp_max_retries,
+                    )
+                elif WhatsAppInstance.objects.exists():
+                    sent = failed = emailed = total = 0
+                    # Mensagens sem instância nenhuma (dado legado de antes
+                    # desta mudança, ou algum ponto que esqueceu de setar)
+                    # caem na instância padrão da igreja — nunca ficam
+                    # paradas pra sempre.
+                    padrao = WhatsAppInstance.padrao()
+                    for instancia in WhatsAppInstance.objects.all():
+                        eligible = self._elegiveis(instance=instancia, max_retries=instancia.max_retries)
+                        if instancia == padrao:
+                            eligible = eligible | self._elegiveis(instance=None, max_retries=instancia.max_retries)
+                        s, f, e, t = self._processar_lote(
+                            church_config, eligible.order_by("created_at")[: instancia.batch_size],
+                            instance=instancia,
+                            interval_seconds=instancia.send_interval_seconds, max_retries=instancia.max_retries,
+                        )
+                        sent += s
+                        failed += f
+                        emailed += e
+                        total += t
+                else:
+                    # Igreja no canal Evolution mas ainda sem NENHUMA
+                    # instância criada — mesmo assim a fila continua
+                    # testável (cai no fallback de console dentro de
+                    # `enviar_whatsapp`), usando o ritmo em `Church` de
+                    # sempre (mesmos campos reaproveitados do canal Meta).
+                    eligible = self._elegiveis(
+                        instance=None, max_retries=church_config.whatsapp_max_retries
+                    ).order_by("created_at")[: church_config.whatsapp_batch_size]
+                    sent, failed, emailed, total = self._processar_lote(
+                        church_config, eligible, instance=None,
+                        interval_seconds=church_config.whatsapp_send_interval_seconds,
+                        max_retries=church_config.whatsapp_max_retries,
+                    )
             total_sent += sent
             total_failed += failed
             total_emailed += emailed
@@ -57,23 +100,25 @@ class Command(BaseCommand):
             f"{total_processed} processada(s) neste lote, em todas as igrejas."
         ))
 
-    def _processar_igreja(self, church_config):
-        eligible = (
-            WhatsAppMessage.objects.select_related("meta_template")
-            .filter(
+    @staticmethod
+    def _elegiveis(*, instance, max_retries):
+        return WhatsAppMessage.objects.select_related("meta_template").filter(
+            Q(instance=instance)
+            & (
                 Q(status=WhatsAppMessage.Status.PENDING)
                 & (Q(scheduled_for__isnull=True) | Q(scheduled_for__lte=timezone.now()))
-                | Q(status=WhatsAppMessage.Status.FAILED, retry_count__lt=church_config.whatsapp_max_retries)
+                | Q(status=WhatsAppMessage.Status.FAILED, retry_count__lt=max_retries)
             )
-            .order_by("created_at")[: church_config.whatsapp_batch_size]
         )
 
+    def _processar_lote(self, church_config, mensagens, *, instance, interval_seconds, max_retries):
+        mensagens = list(mensagens)
         sent, failed, emailed = 0, 0, 0
-        total = len(eligible)
-        for index, msg in enumerate(eligible):
+        total = len(mensagens)
+        for index, msg in enumerate(mensagens):
             is_retry = msg.status == WhatsAppMessage.Status.FAILED
             ok, error, external_id = enviar_whatsapp(
-                msg.phone, msg.message, church_config=church_config,
+                msg.phone, msg.message, church_config=church_config, instance=instance,
                 meta_template=msg.meta_template, template_values=msg.meta_template_values,
             )
             if ok:
@@ -95,13 +140,13 @@ class Command(BaseCommand):
             # FAILED parada pra sempre (só reenvio manual a resgata) — se a
             # pessoa tem e-mail cadastrado, manda por lá como último
             # recurso, pra não depender só de alguém notar na fila.
-            if not ok and is_retry and new_retry_count >= church_config.whatsapp_max_retries:
+            if not ok and is_retry and new_retry_count >= max_retries:
                 if self._send_email_fallback(msg, church_config):
                     emailed += 1
 
             is_last = index == total - 1
             if not is_last:
-                time.sleep(church_config.whatsapp_send_interval_seconds)
+                time.sleep(interval_seconds)
 
         return sent, failed, emailed, total
 

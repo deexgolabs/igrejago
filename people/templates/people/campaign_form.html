@@ -30,6 +30,30 @@
         <span class="text-xs text-slate-400">{{ form.message.help_text }}</span>
         {% if form.message.errors %}<p class="text-xs text-red-600 mt-1">{{ form.message.errors|striptags }}</p>{% endif %}
     </p>
+    <p>
+        <label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.instance.label }}</label>
+        {{ form.instance }}
+        <span class="text-xs text-slate-400">{{ form.instance.help_text }}</span>
+    </p>
+    <div class="pt-2 border-t border-slate-100">
+        <p class="text-xs text-slate-400 mb-2">
+            Fora da janela de 24h de conversa no canal oficial da Meta, só um template aprovado
+            consegue enviar — escolha um abaixo em vez de escrever a mensagem acima.
+        </p>
+    </div>
+    <p>
+        <label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.meta_template.label }}</label>
+        {{ form.meta_template }}
+        <span class="text-xs text-slate-400">{{ form.meta_template.help_text }}</span>
+    </p>
+    <p>
+        <label class="block text-xs font-semibold text-slate-500 mb-1">{{ form.meta_template_values.label }}</label>
+        {{ form.meta_template_values }}
+        <span class="text-xs text-slate-400">{{ form.meta_template_values.help_text }}</span>
+    </p>
+    {% if form.non_field_errors %}
+    <p class="text-xs text-red-600">{{ form.non_field_errors|striptags }}</p>
+    {% endif %}
     <div class="flex gap-2 pt-2">
         <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm rounded-lg px-4 py-2">
             Enviar para {{ recipient_count }} pessoa(s)
