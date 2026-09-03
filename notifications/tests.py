@@ -758,7 +758,11 @@ class TestMetaWhatsAppWebhook:
         assert kwargs["phone"] == "5562911110001"
         assert kwargs["texto"] == "Oi"
 
-    def test_ignores_non_text_inbound_messages(self, client, settings, church_config):
+    def test_media_inbound_message_delegates_with_none_text(self, client, settings, church_config):
+        # Imagem/áudio/vídeo/documento não são ignorados mais — o motor
+        # (`assistant.engine`) responde um aviso fixo em vez de ficar
+        # em silêncio. `texto=None` é o sinal exato disso (diferente de
+        # `texto=""`, que continua sendo "ignora mesmo").
         settings.META_APP_SECRET = "app-secret"
         church_config.whatsapp_meta_phone_number_id = "meta-phone-123"
         church_config.save()
@@ -768,6 +772,29 @@ class TestMetaWhatsAppWebhook:
                 "value": {
                     "metadata": {"phone_number_id": "meta-phone-123"},
                     "messages": [{"from": "5562911110001", "type": "image"}],
+                },
+            }]}]
+        }
+        body = json.dumps(payload).encode()
+        with patch("assistant.engine.processar_mensagem_recebida") as mock_processar:
+            response = client.post(
+                "/mensagens/webhook/meta/", data=body, content_type="application/json",
+                HTTP_X_HUB_SIGNATURE_256=self._assinar(body, "app-secret"),
+            )
+        assert response.status_code == 200
+        assert mock_processar.called
+        assert mock_processar.call_args.kwargs["texto"] is None
+
+    def test_ignores_unknown_message_type(self, client, settings, church_config):
+        settings.META_APP_SECRET = "app-secret"
+        church_config.whatsapp_meta_phone_number_id = "meta-phone-123"
+        church_config.save()
+        payload = {
+            "entry": [{"changes": [{
+                "field": "messages",
+                "value": {
+                    "metadata": {"phone_number_id": "meta-phone-123"},
+                    "messages": [{"from": "5562911110001", "type": "reaction"}],
                 },
             }]}]
         }
@@ -850,6 +877,41 @@ class TestWhatsAppInboundMessage:
             HTTP_X_WEBHOOK_SECRET="correct-secret",
         )
         assert response.status_code == 200
+
+    def test_media_message_delegates_with_none_text(self, client, church_config):
+        WhatsAppInstance.objects.create(church=church_config, name="X", webhook_secret="correct-secret")
+        payload = {
+            "event": "messages.upsert",
+            "data": {
+                "key": {"fromMe": False, "remoteJid": "5562911110001@s.whatsapp.net"},
+                "message": {"imageMessage": {"caption": "foto"}},
+            },
+        }
+        with patch("assistant.engine.processar_mensagem_recebida") as mock_processar:
+            response = client.post(
+                "/mensagens/webhook/evolution/", data=json.dumps(payload), content_type="application/json",
+                HTTP_X_WEBHOOK_SECRET="correct-secret",
+            )
+        assert response.status_code == 200
+        assert mock_processar.called
+        assert mock_processar.call_args.kwargs["texto"] is None
+
+    def test_ignores_events_with_no_text_and_no_media(self, client, church_config):
+        WhatsAppInstance.objects.create(church=church_config, name="X", webhook_secret="correct-secret")
+        payload = {
+            "event": "messages.upsert",
+            "data": {
+                "key": {"fromMe": False, "remoteJid": "5562911110001@s.whatsapp.net"},
+                "message": {"reactionMessage": {}},
+            },
+        }
+        with patch("assistant.engine.processar_mensagem_recebida") as mock_processar:
+            response = client.post(
+                "/mensagens/webhook/evolution/", data=json.dumps(payload), content_type="application/json",
+                HTTP_X_WEBHOOK_SECRET="correct-secret",
+            )
+        assert response.status_code == 200
+        assert not mock_processar.called
 
 
 @pytest.mark.django_db

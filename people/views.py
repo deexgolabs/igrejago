@@ -192,6 +192,41 @@ class PersonSendUpdateLinkView(CanManagePeopleMixin, View):
         return redirect("people:detail", pk=pk)
 
 
+class PersonUpdateLinkCampaignSendView(CanManagePeopleMixin, View):
+    """Manda o link pessoal de atualização (`assistant.PersonUpdateLink`)
+    em massa — mesmo filtro/fila de `CampaignSendView` (`_filter_people`,
+    `WhatsAppMessage.bulk_create`), mas sem texto livre: a mensagem é
+    sempre a mesma, só troca o link por pessoa. `PersonUpdateLink` é
+    reaproveitado (não single-use — `get_or_create`), então rodar o
+    mesmo filtro de novo não duplica link nenhum, só reenvia."""
+
+    template_name = "people/update_link_campaign_form.html"
+
+    def get(self, request):
+        people = _filter_people(request.GET, request.user).exclude(phone="")
+        return render(request, self.template_name, {"recipient_count": people.count()})
+
+    def post(self, request):
+        people = _filter_people(request.GET, request.user).exclude(phone="")
+        instance = WhatsAppInstance.padrao() if request.church.whatsapp_provider == Church.WhatsAppProvider.EVOLUTION else None
+        label = f"Atualização cadastral {date.today():%d/%m/%Y}"
+
+        mensagens = []
+        for person in people:
+            link, _ = PersonUpdateLink.objects.get_or_create(
+                person=person, defaults={"church": request.church, "created_by": request.user},
+            )
+            url = request.build_absolute_uri(reverse("assistant:person_update_form", args=[link.token]))
+            mensagens.append(WhatsAppMessage(
+                church=request.church, person=person, phone=person.whatsapp_number,
+                message=f"Oi, {person.full_name}! Pra manter seu cadastro atualizado, acessa: {url}",
+                instance=instance, campaign_label=label, created_by=request.user,
+            ))
+        queued = WhatsAppMessage.objects.bulk_create(mensagens)
+        messages.success(request, f"{len(queued)} link(s) de atualização adicionado(s) à fila.")
+        return redirect("notifications:queue")
+
+
 class PersonCreateAccessView(CanManagePeopleMixin, View):
     """Cria o login (`accounts.User`) de uma pessoa que ainda não tem —
     fecha a parte "self-service" do vínculo Membro↔Login: a secretaria só

@@ -6,7 +6,8 @@ import pytest
 from django.core.cache import cache
 from django.utils import timezone
 
-from assistant import ai, engine, ratelimit
+from assistant import ai, alerts, engine, ratelimit
+from assistant.context_processors import pending_counts
 from assistant.models import Conversation, ConversationMessage, PersonDraft, PersonUpdateLink
 from people.models import Person
 
@@ -366,3 +367,123 @@ class TestPersonUpdateFormView:
     def test_invalid_token_is_404(self, client):
         response = client.get("/assistente/atualizar-cadastro/00000000-0000-0000-0000-000000000000/")
         assert response.status_code == 404
+
+
+@pytest.mark.django_db
+class TestAlerts:
+    def test_avisar_novo_draft_sends_email_when_configured(self, church, mailoutbox):
+        church.admin_alert_emails = "secretaria@example.com"
+        church.save()
+        draft = PersonDraft.objects.create(
+            church=church, origin=PersonDraft.Origin.WHATSAPP_IA, data={"full_name": "Maria Silva"}
+        )
+        alerts.avisar_novo_draft(draft)
+        assert len(mailoutbox) == 1
+        assert mailoutbox[0].to == ["secretaria@example.com"]
+        assert "Maria Silva" in mailoutbox[0].subject
+
+    def test_avisar_novo_draft_does_nothing_without_admin_emails(self, church, mailoutbox):
+        draft = PersonDraft.objects.create(
+            church=church, origin=PersonDraft.Origin.WHATSAPP_IA, data={"full_name": "Maria Silva"}
+        )
+        alerts.avisar_novo_draft(draft)
+        assert len(mailoutbox) == 0
+
+    def test_avisar_atendimento_humano_sends_email(self, church, mailoutbox):
+        church.admin_alert_emails = "secretaria@example.com, pastor@example.com"
+        church.save()
+        conversation = Conversation.objects.create(church=church, phone=PHONE)
+        alerts.avisar_atendimento_humano(conversation)
+        assert len(mailoutbox) == 1
+        assert mailoutbox[0].to == ["secretaria@example.com", "pastor@example.com"]
+        assert PHONE in mailoutbox[0].subject or PHONE in mailoutbox[0].body
+
+    def test_engine_sends_alert_when_draft_confirmed(self, church, mailoutbox):
+        church.ia_chat_enabled = True
+        church.admin_alert_emails = "secretaria@example.com"
+        church.save()
+        _receber(church, "oi")
+        _receber(church, "1")
+        with patch("assistant.ai.extrair_dados_cadastro", return_value={"full_name": "Maria"}):
+            _receber(church, "Maria")
+        _receber(church, "sim")
+        assert len(mailoutbox) == 1
+        assert "Maria" in mailoutbox[0].subject
+
+    def test_engine_sends_alert_when_choosing_human_attendance(self, church, mailoutbox):
+        church.ia_chat_enabled = True
+        church.admin_alert_emails = "secretaria@example.com"
+        church.save()
+        _receber(church, "oi")
+        _receber(church, "2")
+        assert len(mailoutbox) == 1
+
+
+@pytest.mark.django_db
+class TestPendingCountsContextProcessor:
+    class _FakeRequest:
+        def __init__(self, user, church):
+            self.user = user
+            self.church = church
+
+    def test_returns_counts_for_unrestricted_manager(self, church, pastor_user):
+        PersonDraft.objects.create(
+            church=church, origin=PersonDraft.Origin.WHATSAPP_IA,
+            data={"full_name": "X"}, status=PersonDraft.Status.PENDING,
+        )
+        Conversation.objects.create(church=church, phone=PHONE, state=Conversation.State.AGUARDANDO_HUMANO)
+
+        result = pending_counts(self._FakeRequest(pastor_user, church))
+        assert result == {"assistant_draft_count": 1, "assistant_human_queue_count": 1}
+
+    def test_empty_for_scoped_member(self, church, member_user):
+        PersonDraft.objects.create(
+            church=church, origin=PersonDraft.Origin.WHATSAPP_IA,
+            data={"full_name": "X"}, status=PersonDraft.Status.PENDING,
+        )
+        assert pending_counts(self._FakeRequest(member_user, church)) == {}
+
+    def test_empty_without_church(self, pastor_user):
+        assert pending_counts(self._FakeRequest(pastor_user, None)) == {}
+
+    def test_empty_for_anonymous(self, church):
+        from django.contrib.auth.models import AnonymousUser
+
+        assert pending_counts(self._FakeRequest(AnonymousUser(), church)) == {}
+
+
+@pytest.mark.django_db
+class TestEngineMedia:
+    def test_media_without_text_gets_fallback_without_calling_ai(self, church):
+        church.ia_chat_enabled = True
+        church.save()
+        with patch("assistant.ai.gerar_resposta") as mock_ia, patch("assistant.ai.extrair_dados_cadastro") as mock_extrair:
+            with patch("core.whatsapp.enviar_whatsapp", return_value=(True, "", "")) as mock_send:
+                engine.processar_mensagem_recebida(church=church, instance=None, phone="62999998888", texto=None, raw={})
+        assert "Só entendo mensagens de texto" in mock_send.call_args[0][1]
+        assert not mock_ia.called
+        assert not mock_extrair.called
+
+    def test_media_does_not_change_conversation_state(self, church):
+        church.ia_chat_enabled = True
+        church.save()
+        _receber(church, "oi")
+        _receber(church, "3")  # entra em IA_LIVRE
+        with patch("core.whatsapp.enviar_whatsapp", return_value=(True, "", "")):
+            engine.processar_mensagem_recebida(church=church, instance=None, phone="62999998888", texto=None, raw={})
+        conversation = Conversation.objects.get(church=church, phone=PHONE)
+        assert conversation.state == Conversation.State.IA_LIVRE  # não mudou
+
+    def test_media_without_ia_enabled_gets_disabled_message(self, church):
+        with patch("core.whatsapp.enviar_whatsapp", return_value=(True, "", "")) as mock_send:
+            engine.processar_mensagem_recebida(church=church, instance=None, phone="62999998888", texto=None, raw={})
+        assert "não temos atendimento automático" in mock_send.call_args[0][1]
+
+    def test_media_records_transcript_placeholder(self, church):
+        church.ia_chat_enabled = True
+        church.save()
+        with patch("core.whatsapp.enviar_whatsapp", return_value=(True, "", "")):
+            engine.processar_mensagem_recebida(church=church, instance=None, phone="62999998888", texto=None, raw={})
+        conversation = Conversation.objects.get(church=church, phone=PHONE)
+        entrada = conversation.mensagens.filter(direction=ConversationMessage.Direction.IN).first()
+        assert entrada.body == "[mídia recebida]"

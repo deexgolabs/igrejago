@@ -6,6 +6,7 @@ from django.utils import timezone
 from django.views.generic import ListView, View
 
 from accounts.mixins import IsChurchManagerMixin
+from assistant import alerts
 from assistant.forms import PersonUpdateForm
 from assistant.models import PERSON_DRAFT_ALLOWED_FIELDS, Conversation, PersonDraft, PersonUpdateLink
 from people.models import Person
@@ -103,9 +104,10 @@ class PersonUpdateFormView(View):
             dados[campo] = valor.isoformat() if campo == "birth_date" else str(valor)
 
         if dados:
-            PersonDraft.objects.create(
+            draft = PersonDraft.objects.create(
                 church=link.church, person=link.person, origin=PersonDraft.Origin.PUBLIC_FORM, data=dados,
             )
+            alerts.avisar_novo_draft(draft)
         link.last_used_at = timezone.now()
         link.save(update_fields=["last_used_at"])
         return render(request, "assistant/person_update_done.html", {"person": link.person})

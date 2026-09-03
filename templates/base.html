@@ -75,7 +75,12 @@
                     <a href="{% url 'core:shortlink_list' %}" class="block px-4 py-2 hover:bg-slate-50">Links curtos</a>
                     <a href="{% url 'core:church_network_list' %}" class="block px-4 py-2 hover:bg-slate-50">Rede de igrejas</a>
                     <a href="{% url 'core:webhook_list' %}" class="block px-4 py-2 hover:bg-slate-50">Webhooks</a>
-                    <a href="{% url 'assistant:draft_list' %}" class="block px-4 py-2 hover:bg-slate-50 border-t border-slate-100">Cadastros pendentes</a>
+                    <a href="{% url 'assistant:draft_list' %}" class="block px-4 py-2 hover:bg-slate-50 border-t border-slate-100">
+                        Cadastros pendentes{% if assistant_draft_count %} <span class="ml-1 bg-red-600 text-white text-xs rounded-full px-1.5">{{ assistant_draft_count }}</span>{% endif %}
+                    </a>
+                    <a href="{% url 'assistant:human_queue' %}" class="block px-4 py-2 hover:bg-slate-50">
+                        Atendimento humano (WhatsApp){% if assistant_human_queue_count %} <span class="ml-1 bg-red-600 text-white text-xs rounded-full px-1.5">{{ assistant_human_queue_count }}</span>{% endif %}
+                    </a>
                     <a href="{% url 'core:settings' %}" class="block px-4 py-2 hover:bg-slate-50">Configurações</a>
                 </div>
             </div>
@@ -173,7 +178,12 @@
         <a href="{% url 'custom_forms:list' %}" class="block text-white/85 hover:text-white">Formulários</a>
         <a href="{% url 'core:shortlink_list' %}" class="block text-white/85 hover:text-white">Links curtos</a>
         <a href="{% url 'core:church_network_list' %}" class="block text-white/85 hover:text-white">Rede de igrejas</a>
-        <a href="{% url 'assistant:draft_list' %}" class="block text-white/85 hover:text-white">Cadastros pendentes</a>
+        <a href="{% url 'assistant:draft_list' %}" class="block text-white/85 hover:text-white">
+            Cadastros pendentes{% if assistant_draft_count %} <span class="ml-1 bg-red-600 text-white text-xs rounded-full px-1.5">{{ assistant_draft_count }}</span>{% endif %}
+        </a>
+        <a href="{% url 'assistant:human_queue' %}" class="block text-white/85 hover:text-white">
+            Atendimento humano (WhatsApp){% if assistant_human_queue_count %} <span class="ml-1 bg-red-600 text-white text-xs rounded-full px-1.5">{{ assistant_human_queue_count }}</span>{% endif %}
+        </a>
         <a href="{% url 'core:settings' %}" class="block text-white/85 hover:text-white">Configurações</a>
         {% if request.user.church and request.user.church.filiais.exists %}
         <div class="border-t border-white/20 pt-3">

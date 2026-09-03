@@ -16,7 +16,7 @@ from datetime import timedelta
 
 from django.utils import timezone
 
-from assistant import ai, ratelimit
+from assistant import ai, alerts, ratelimit
 from assistant.models import Conversation, ConversationMessage, PersonDraft
 from core import whatsapp
 
@@ -33,15 +33,27 @@ _ROTULOS_CAMPO = {
 _MSG_IA_DESLIGADA = "No momento não temos atendimento automático por aqui — fale direto com a secretaria."
 _MSG_LIMITE = 'Muitas mensagens em pouco tempo — tente de novo daqui a pouco ou digite "2" pra falar com a secretaria.'
 _MSG_FALHA_IA = 'Não consegui responder agora — digite "2" pra falar com a secretaria.'
+_MSG_MIDIA_NAO_SUPORTADA = "Só entendo mensagens de texto por enquanto — pode escrever o que precisa?"
 
 
 def processar_mensagem_recebida(*, church, instance, phone, texto, raw):
     """Chamada pelos webhooks dentro de um `tenant_context(church)` já
     ativo — `Person`/`Conversation`.objects já filtram sozinhos por
-    igreja. `instance` é `None` no canal Meta Cloud."""
+    igreja. `instance` é `None` no canal Meta Cloud.
+
+    `texto=None` (diferente de `""`) é o sinal que os webhooks mandam
+    pra "chegou mídia (foto/áudio/vídeo/documento), não texto" — nesse
+    caso responde um aviso fixo em vez de tentar processar como
+    cadastro/pergunta (nunca chama a IA com isso). `texto=""`/ausente
+    continua ignorado em silêncio (evento sem conteúdo útil nenhum)."""
     phone = _normalizar_telefone(phone)
-    texto = (texto or "").strip()
-    if not phone or not texto:
+    if not phone:
+        return
+    if texto is None:
+        _processar_midia_sem_texto(church, instance, phone, raw)
+        return
+    texto = texto.strip()
+    if not texto:
         return
 
     conversation, created = Conversation.objects.get_or_create(
@@ -78,6 +90,27 @@ def processar_mensagem_recebida(*, church, instance, phone, texto, raw):
 
     if resposta:
         _responder(church, instance, conversation, resposta)
+
+
+def _processar_midia_sem_texto(church, instance, phone, raw):
+    """Mídia recebida (foto/áudio/vídeo/documento) — não passa pelo
+    `_despachar` (não muda `state`, nunca chama IA), só registra no
+    transcript e responde um aviso fixo. Mesmo gate de
+    `ia_chat_enabled` do fluxo normal, pra não notificar quem nem tem
+    o assistente ligado."""
+    conversation, created = Conversation.objects.get_or_create(
+        church=church, phone=phone,
+        defaults={"instance": instance, "state": Conversation.State.MENU},
+    )
+    if not created and instance is not None:
+        conversation.instance = instance
+    ConversationMessage.objects.create(
+        church=church, conversation=conversation, direction=ConversationMessage.Direction.IN,
+        body="[mídia recebida]", raw_payload=raw or {},
+    )
+    conversation.save()
+    resposta = _MSG_IA_DESLIGADA if not church.ia_chat_enabled else _MSG_MIDIA_NAO_SUPORTADA
+    _responder(church, instance, conversation, resposta)
 
 
 def _despachar(church, conversation, texto):
@@ -124,6 +157,7 @@ def _tratar_menu(church, conversation, texto):
         )
     if escolha == "2":
         conversation.state = Conversation.State.AGUARDANDO_HUMANO
+        alerts.avisar_atendimento_humano(conversation)
         return "Vou avisar a secretaria — já já alguém te chama por aqui. (digite \"menu\" a qualquer momento pra voltar)"
     if escolha == "3":
         conversation.state = Conversation.State.IA_LIVRE
@@ -158,10 +192,11 @@ def _tratar_confirmacao(church, conversation, texto):
     if resposta in ("sim", "s", "confirmo", "confirmar", "ok", "certo"):
         dados = dict(conversation.state_data.get("draft") or {})
         dados.setdefault("phone", conversation.phone)  # já é o próprio número — não precisa perguntar de novo
-        PersonDraft.objects.create(
+        draft = PersonDraft.objects.create(
             church=church, person=conversation.person, conversation=conversation,
             origin=PersonDraft.Origin.WHATSAPP_IA, data=dados,
         )
+        alerts.avisar_novo_draft(draft)
         conversation.state = Conversation.State.MENU
         conversation.state_data = {}
         return 'Recebi! A secretaria vai revisar e confirmar em breve. Digite "menu" quando quiser outra coisa.'

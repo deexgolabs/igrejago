@@ -60,6 +60,49 @@ class TestEmailCampaign:
 
 
 @pytest.mark.django_db
+class TestUpdateLinkCampaign:
+    """Envio em massa do link de atualização — mesmo filtro/fila de
+    `TestCampaign`, mas sem texto livre (mensagem fixa, só troca o
+    link por pessoa)."""
+
+    def test_queues_one_link_message_per_filtered_person_with_phone(self, pastor_client, person, church):
+        from assistant.models import PersonUpdateLink
+
+        Person.objects.create(church=church, full_name="Sem Telefone", is_member=True, status=Person.Status.ACTIVE)
+        other = Person.objects.create(
+            church=church, full_name="Outro Cargo", phone="62911110000", is_member=True,
+            status=Person.Status.ACTIVE, role=Person.Role.DEACON,
+        )
+
+        response = pastor_client.post(f"/pessoas/campanha/link-atualizacao/?role={Person.Role.MEMBER}")
+        assert response.status_code == 302
+
+        queued = WhatsAppMessage.objects.all()
+        assert queued.count() == 1
+        assert queued.first().person == person
+        assert person.full_name in queued.first().message
+        assert not WhatsAppMessage.objects.filter(person=other).exists()
+
+        link = PersonUpdateLink.objects.get(person=person)
+        assert str(link.token) in queued.first().message
+
+    def test_reusing_filter_does_not_duplicate_link(self, pastor_client, person, church):
+        from assistant.models import PersonUpdateLink
+
+        pastor_client.post(f"/pessoas/campanha/link-atualizacao/?role={Person.Role.MEMBER}")
+        first_token = PersonUpdateLink.objects.get(person=person).token
+
+        pastor_client.post(f"/pessoas/campanha/link-atualizacao/?role={Person.Role.MEMBER}")
+
+        assert PersonUpdateLink.objects.filter(person=person).count() == 1
+        assert PersonUpdateLink.objects.get(person=person).token == first_token
+        assert WhatsAppMessage.objects.count() == 2  # 2 envios, mesmo link nas duas mensagens
+
+    def test_member_cannot_access(self, member_client):
+        assert member_client.get("/pessoas/campanha/link-atualizacao/").status_code == 403
+
+
+@pytest.mark.django_db
 class TestSMSCampaign:
     def test_queues_only_for_people_with_phone(self, pastor_client, person, church):
         from notifications.models import SMSMessage

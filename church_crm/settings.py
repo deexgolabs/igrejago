@@ -102,6 +102,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "core.context_processors.church_config",
+                "assistant.context_processors.pending_counts",
             ],
         },
     },

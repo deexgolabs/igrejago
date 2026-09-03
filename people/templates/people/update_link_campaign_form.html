@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Link de atualização em massa{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold text-slate-900 mb-1">Link de atualização em massa</h1>
+<p class="text-sm text-slate-500 mb-6">
+    Manda um link pessoal de atualização cadastral pra <strong>{{ recipient_count }}</strong> pessoa(s)
+    que batem com o filtro aplicado na listagem. Cada uma recebe o próprio link — quem já tem um
+    (mandado antes) reaproveita o mesmo, não gera um novo. Qualquer envio vira um rascunho em
+    <a href="{% url 'assistant:draft_list' %}" class="text-brand-600 hover:underline">Cadastros pendentes</a>
+    pra você revisar antes de virar cadastro de verdade.
+</p>
+
+<form method="post" class="bg-white border border-slate-200 rounded-xl p-6 max-w-lg">
+    {% csrf_token %}
+    <div class="flex gap-2">
+        <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm rounded-lg px-4 py-2">
+            Enviar pra {{ recipient_count }} pessoa(s)
+        </button>
+        <a href="{% url 'people:list' %}" class="text-sm text-slate-500 hover:text-slate-800 px-4 py-2">Cancelar</a>
+    </div>
+</form>
+{% endblock %}

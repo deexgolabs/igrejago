@@ -722,10 +722,23 @@ class WhatsAppWebhookView(View):
             if remote_jid.endswith("@g.us"):
                 return  # grupo — fora de escopo do assistente por enquanto
             phone = remote_jid.split("@")[0]
+            if not phone:
+                return
             message = data.get("message", {})
             texto = message.get("conversation") or message.get("extendedTextMessage", {}).get("text", "")
-            if not phone or not texto:
-                return
+            if not texto:
+                # `texto=None` sinaliza "mídia recebida, não texto" pro
+                # motor responder um aviso em vez de ignorar em silêncio
+                # — só quando a mensagem TEM algum tipo de mídia
+                # reconhecível (senão é algum evento vazio/de outro tipo
+                # que não nos interessa, ignora mesmo).
+                tem_midia = any(
+                    message.get(campo)
+                    for campo in ("imageMessage", "audioMessage", "videoMessage", "documentMessage", "stickerMessage")
+                )
+                if not tem_midia:
+                    return
+                texto = None
 
             from assistant.engine import processar_mensagem_recebida
             from core.tenant_context import tenant_context
@@ -836,10 +849,12 @@ class MetaWhatsAppWebhookView(View):
     @staticmethod
     def _processar_mensagem_recebida(valor):
         """`value.messages[]` — mensagem que o CONTATO mandou, nunca lido
-        antes (só `value.statuses[]`, confirmação de entrega). Só texto
-        no v1 (`msg["type"] == "text"`) — imagem/áudio/documento ficam
-        fora de escopo por enquanto. Já roda dentro do `try/except`
-        amplo de `post()` — sem guard próprio aqui."""
+        antes (só `value.statuses[]`, confirmação de entrega). Já roda
+        dentro do `try/except` amplo de `post()` — sem guard próprio
+        aqui. Tipo diferente de `text` (imagem/áudio/vídeo/documento/
+        figurinha) manda `texto=None` pro motor responder um aviso em
+        vez de ignorar em silêncio — interpretação de mídia de verdade
+        fica fora de escopo (custo/complexidade de API multimodal)."""
         phone_number_id = valor.get("metadata", {}).get("phone_number_id", "")
         config = Church.objects.filter(whatsapp_meta_phone_number_id=phone_number_id).first() if phone_number_id else None
         if config is None:
@@ -848,13 +863,20 @@ class MetaWhatsAppWebhookView(View):
         from assistant.engine import processar_mensagem_recebida
         from core.tenant_context import tenant_context
 
+        tipos_midia = {"image", "audio", "video", "document", "sticker"}
         for msg in valor.get("messages", []):
-            if msg.get("type") != "text":
-                continue
             phone = msg.get("from", "")
-            texto = msg.get("text", {}).get("body", "")
-            if not phone or not texto:
+            if not phone:
                 continue
+            tipo = msg.get("type")
+            if tipo == "text":
+                texto = msg.get("text", {}).get("body", "")
+                if not texto:
+                    continue
+            elif tipo in tipos_midia:
+                texto = None
+            else:
+                continue  # tipo desconhecido/de sistema (reação, etc.) — ignora
             with tenant_context(config):
                 processar_mensagem_recebida(church=config, instance=None, phone=phone, texto=texto, raw=valor)
 

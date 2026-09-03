@@ -1,6 +1,7 @@
 from datetime import date
 
 import pytest
+from django.core.cache import cache
 
 from accounts.models import User
 from core.models import Church
@@ -10,6 +11,23 @@ from people.models import Person
 @pytest.fixture(autouse=True)
 def _media_root(settings, tmp_path):
     settings.MEDIA_ROOT = tmp_path
+
+
+@pytest.fixture(autouse=True)
+def _clear_cache():
+    # Sem isso, contador de rate limit (`core.ratelimit`, `assistant.ratelimit`,
+    # `api.auth.ApiKeyRateLimitMixin`) pode vazar de um teste pro outro —
+    # o cache do Django não é resetado pelo rollback de transação do
+    # `django_db` como o banco é, e o SQLite costuma REAPROVEITAR o
+    # mesmo pk depois de um rollback, então uma `Church`/IP repetido
+    # entre dois testes seguidos herda o contador já estourado do
+    # anterior (achado testando de verdade: um teste que confirmava
+    # cadastro via WhatsApp começou a falhar porque um teste de rate
+    # limit, rodando antes por coincidência de ordem, já tinha
+    # consumido o limite pro mesmo `church.pk`).
+    cache.clear()
+    yield
+    cache.clear()
 
 
 @pytest.fixture
