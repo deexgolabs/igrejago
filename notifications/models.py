@@ -1,6 +1,7 @@
 import uuid
 
 from django.conf import settings
+from django.core.validators import RegexValidator
 from django.db import models
 
 from core.tenancy import TenantModel
@@ -199,6 +200,91 @@ class EmailMessage(TenantModel):
     def is_due(self):
         from django.utils import timezone
         return self.scheduled_for is None or self.scheduled_for <= timezone.now()
+
+
+class WhatsAppMetaTemplate(TenantModel):
+    """Template de mensagem da API oficial da Meta — conceito DIFERENTE
+    de `MessageTemplate` (que é só um texto local reaproveitável): aqui
+    o texto precisa ser SUBMETIDO e APROVADO pela própria Meta antes de
+    poder ser usado fora da janela de 24h de conversa. Variáveis usam a
+    sintaxe posicional da Meta (`{{1}}`, `{{2}}`...), diferente do
+    `{nome}` nomeado usado nos templates locais de WhatsApp/e-mail.
+
+    Editável só em DRAFT/REJECTED — depois de enviado pra revisão (ver
+    `notifications.WhatsAppMetaTemplateSubmitView`) o texto já foi
+    submetido e não pode mais ser trocado por aqui (a Meta não permite
+    editar um template em análise); um template rejeitado pode ser
+    ajustado e reenviado.
+
+    Usar um template já APROVADO pra efetivamente mandar mensagem
+    ainda não está integrado na fila `WhatsAppMessage`/dispatcher
+    `core.whatsapp.enviar_whatsapp` — isso é um próximo passo, não
+    esta funcionalidade (ver docstring de `core/whatsapp.py`)."""
+
+    class Category(models.TextChoices):
+        MARKETING = "marketing", "Marketing"
+        UTILITY = "utility", "Utilidade"
+        AUTHENTICATION = "authentication", "Autenticação"
+
+    class Status(models.TextChoices):
+        DRAFT = "DRAFT", "Rascunho"
+        PENDING = "PENDING", "Em análise pela Meta"
+        APPROVED = "APPROVED", "Aprovado"
+        REJECTED = "REJECTED", "Rejeitado"
+        DISABLED = "DISABLED", "Desativado"
+
+    name = models.CharField(
+        "Nome", max_length=512,
+        validators=[RegexValidator(r"^[a-z0-9_]+$", "Use só letras minúsculas, números e _ (exigência da Meta).")],
+        help_text="Identifica o template na Meta — não pode ser alterado depois de criado.",
+    )
+    language = models.CharField("Idioma", max_length=10, default="pt_BR")
+    category = models.CharField("Categoria", max_length=20, choices=Category.choices, default=Category.UTILITY)
+
+    header_text = models.CharField(
+        "Cabeçalho (opcional)", max_length=60, blank=True,
+        help_text="Texto simples, sem variável — só a versão de texto do cabeçalho é suportada aqui.",
+    )
+    body_text = models.TextField(
+        "Corpo da mensagem",
+        help_text="Use {{1}}, {{2}}... para variáveis — sintaxe posicional da própria Meta, "
+                   "diferente do {nome} usado nos templates locais de WhatsApp/e-mail.",
+    )
+    footer_text = models.CharField("Rodapé (opcional)", max_length=60, blank=True)
+
+    status = models.CharField("Status", max_length=10, choices=Status.choices, default=Status.DRAFT)
+    meta_template_id = models.CharField(
+        "ID na Meta", max_length=100, blank=True,
+        help_text="Preenchido só depois de enviado pra aprovação — usado pra consultar status/excluir.",
+    )
+    rejection_reason = models.TextField("Motivo da rejeição", blank=True)
+    submitted_at = models.DateTimeField("Enviado pra aprovação em", null=True, blank=True)
+    status_checked_at = models.DateTimeField("Status atualizado em", null=True, blank=True)
+    created_at = models.DateTimeField("Criado em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Template Meta (WhatsApp)"
+        verbose_name_plural = "Templates Meta (WhatsApp)"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.name} ({self.get_status_display()})"
+
+    @property
+    def pode_editar(self):
+        return self.status in (self.Status.DRAFT, self.Status.REJECTED)
+
+    def montar_components(self):
+        """Monta a lista `components` no formato que a Business
+        Management API da Meta espera — sempre um `BODY`, `HEADER`/
+        `FOOTER` só se preenchidos."""
+        components = []
+        if self.header_text:
+            components.append({"type": "HEADER", "format": "TEXT", "text": self.header_text})
+        components.append({"type": "BODY", "text": self.body_text})
+        if self.footer_text:
+            components.append({"type": "FOOTER", "text": self.footer_text})
+        return components
 
 
 class SMSMessage(TenantModel):

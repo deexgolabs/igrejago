@@ -6,7 +6,7 @@ import pytest
 from django.core.management import call_command
 from django.utils import timezone
 
-from notifications.models import EmailMessage, MessageTemplate, SMSMessage, WhatsAppMessage
+from notifications.models import EmailMessage, MessageTemplate, SMSMessage, WhatsAppMessage, WhatsAppMetaTemplate
 from notifications.views import normalize_phone
 from people.models import Department, Person
 
@@ -797,3 +797,154 @@ class TestEmailCampanhaHelpers:
         assert "/mensagens/email/rastrear/tok-123.gif" in html_body
         assert "/mensagens/email/cancelar/tok-123/" in html_body
         assert mailoutbox[0].extra_headers.get("List-Unsubscribe")
+
+
+@pytest.mark.django_db
+class TestWhatsAppMetaTemplateCRUD:
+    def test_pastor_can_create_draft_template(self, pastor_client):
+        response = pastor_client.post("/mensagens/whatsapp/templates/novo/", {
+            "name": "aviso_geral", "language": "pt_BR", "category": "utility",
+            "header_text": "", "body_text": "Olá {{1}}, seu culto é {{2}}.", "footer_text": "",
+        })
+        assert response.status_code == 302
+        template = WhatsAppMetaTemplate.objects.get(name="aviso_geral")
+        assert template.status == WhatsAppMetaTemplate.Status.DRAFT
+
+    def test_name_validation_rejects_uppercase_and_spaces(self, pastor_client):
+        response = pastor_client.post("/mensagens/whatsapp/templates/novo/", {
+            "name": "Aviso Geral", "language": "pt_BR", "category": "utility",
+            "header_text": "", "body_text": "Olá {{1}}.", "footer_text": "",
+        })
+        assert response.status_code == 200
+        assert not WhatsAppMetaTemplate.objects.filter(name="Aviso Geral").exists()
+
+    def test_member_cannot_manage_templates(self, member_client):
+        response = member_client.get("/mensagens/whatsapp/templates/")
+        assert response.status_code == 403
+
+    def test_editing_pending_template_by_direct_url_is_404(self, pastor_client, church):
+        template = WhatsAppMetaTemplate.objects.create(
+            church=church, name="pendente", body_text="x", status=WhatsAppMetaTemplate.Status.PENDING,
+        )
+        response = pastor_client.get(f"/mensagens/whatsapp/templates/{template.pk}/editar/")
+        assert response.status_code == 404
+
+    def test_editing_draft_template_works(self, pastor_client, church):
+        template = WhatsAppMetaTemplate.objects.create(church=church, name="rascunho", body_text="x")
+        response = pastor_client.post(f"/mensagens/whatsapp/templates/{template.pk}/editar/", {
+            "name": "rascunho", "language": "pt_BR", "category": "utility",
+            "header_text": "", "body_text": "Texto novo {{1}}.", "footer_text": "",
+        })
+        assert response.status_code == 302
+        template.refresh_from_db()
+        assert template.body_text == "Texto novo {{1}}."
+
+    def test_delete_removes_local_even_without_meta_id(self, pastor_client, church):
+        template = WhatsAppMetaTemplate.objects.create(church=church, name="apagar", body_text="x")
+        response = pastor_client.post(f"/mensagens/whatsapp/templates/{template.pk}/excluir/")
+        assert response.status_code == 302
+        assert not WhatsAppMetaTemplate.objects.filter(pk=template.pk).exists()
+
+    def test_delete_calls_meta_but_removes_local_even_if_that_fails(self, pastor_client, church):
+        church.whatsapp_meta_business_account_id = "waba-1"
+        church.whatsapp_meta_access_token = "token-1"
+        church.save()
+        template = WhatsAppMetaTemplate.objects.create(
+            church=church, name="apagar", body_text="x", meta_template_id="meta-123",
+        )
+        with patch("notifications.views.whatsapp.excluir_template_meta", side_effect=Exception("boom")):
+            response = pastor_client.post(f"/mensagens/whatsapp/templates/{template.pk}/excluir/")
+        assert response.status_code == 302
+        assert not WhatsAppMetaTemplate.objects.filter(pk=template.pk).exists()
+
+
+@pytest.mark.django_db
+class TestWhatsAppMetaTemplateSubmitAndStatus:
+    def test_submit_without_waba_credentials_shows_error(self, pastor_client, church):
+        template = WhatsAppMetaTemplate.objects.create(church=church, name="rascunho", body_text="x")
+        response = pastor_client.post(f"/mensagens/whatsapp/templates/{template.pk}/enviar/")
+        assert response.status_code == 302
+        template.refresh_from_db()
+        assert template.status == WhatsAppMetaTemplate.Status.DRAFT
+
+    def test_submit_success_updates_status_and_meta_id(self, pastor_client, church):
+        church.whatsapp_meta_business_account_id = "waba-1"
+        church.whatsapp_meta_access_token = "token-1"
+        church.save()
+        template = WhatsAppMetaTemplate.objects.create(church=church, name="rascunho", body_text="Olá {{1}}.")
+        with patch(
+            "notifications.views.whatsapp.criar_template_meta",
+            return_value={"id": "meta-999", "status": "PENDING"},
+        ) as mock_criar:
+            response = pastor_client.post(f"/mensagens/whatsapp/templates/{template.pk}/enviar/")
+        assert response.status_code == 302
+        template.refresh_from_db()
+        assert template.status == WhatsAppMetaTemplate.Status.PENDING
+        assert template.meta_template_id == "meta-999"
+        assert template.submitted_at is not None
+        assert mock_criar.call_args.kwargs["waba_id"] == "waba-1"
+        assert mock_criar.call_args.kwargs["components"] == [{"type": "BODY", "text": "Olá {{1}}."}]
+
+    def test_submit_http_error_keeps_status_and_shows_message(self, pastor_client, church):
+        church.whatsapp_meta_business_account_id = "waba-1"
+        church.whatsapp_meta_access_token = "token-1"
+        church.save()
+        template = WhatsAppMetaTemplate.objects.create(church=church, name="rascunho", body_text="x")
+        with patch("notifications.views.whatsapp.criar_template_meta", side_effect=Exception("recusado")):
+            response = pastor_client.post(
+                f"/mensagens/whatsapp/templates/{template.pk}/enviar/", follow=True,
+            )
+        assert response.status_code == 200
+        template.refresh_from_db()
+        assert template.status == WhatsAppMetaTemplate.Status.DRAFT
+        assert template.meta_template_id == ""
+        assert "recusou" in response.content.decode()
+
+    def test_cannot_submit_an_already_pending_template(self, pastor_client, church):
+        template = WhatsAppMetaTemplate.objects.create(
+            church=church, name="pendente", body_text="x", status=WhatsAppMetaTemplate.Status.PENDING,
+        )
+        response = pastor_client.post(f"/mensagens/whatsapp/templates/{template.pk}/enviar/")
+        assert response.status_code == 404
+
+    def test_refresh_status_reflects_approval(self, pastor_client, church):
+        church.whatsapp_meta_business_account_id = "waba-1"
+        church.whatsapp_meta_access_token = "token-1"
+        church.save()
+        template = WhatsAppMetaTemplate.objects.create(
+            church=church, name="pendente", body_text="x",
+            status=WhatsAppMetaTemplate.Status.PENDING, meta_template_id="meta-999",
+        )
+        with patch(
+            "notifications.views.whatsapp.consultar_status_template_meta",
+            return_value={"status": "APPROVED", "id": "meta-999"},
+        ):
+            response = pastor_client.post(f"/mensagens/whatsapp/templates/{template.pk}/atualizar-status/")
+        assert response.status_code == 302
+        template.refresh_from_db()
+        assert template.status == WhatsAppMetaTemplate.Status.APPROVED
+        assert template.status_checked_at is not None
+
+    def test_refresh_status_stores_rejection_reason(self, pastor_client, church):
+        church.whatsapp_meta_business_account_id = "waba-1"
+        church.whatsapp_meta_access_token = "token-1"
+        church.save()
+        template = WhatsAppMetaTemplate.objects.create(
+            church=church, name="pendente", body_text="x",
+            status=WhatsAppMetaTemplate.Status.PENDING, meta_template_id="meta-999",
+        )
+        with patch(
+            "notifications.views.whatsapp.consultar_status_template_meta",
+            return_value={"status": "REJECTED", "rejected_reason": "Conteúdo promocional demais"},
+        ):
+            pastor_client.post(f"/mensagens/whatsapp/templates/{template.pk}/atualizar-status/")
+        template.refresh_from_db()
+        assert template.status == WhatsAppMetaTemplate.Status.REJECTED
+        assert template.rejection_reason == "Conteúdo promocional demais"
+
+    def test_refresh_status_without_meta_id_shows_error(self, pastor_client, church):
+        template = WhatsAppMetaTemplate.objects.create(church=church, name="rascunho", body_text="x")
+        response = pastor_client.post(f"/mensagens/whatsapp/templates/{template.pk}/atualizar-status/")
+        assert response.status_code == 302
+        template.refresh_from_db()
+        assert template.status == WhatsAppMetaTemplate.Status.DRAFT

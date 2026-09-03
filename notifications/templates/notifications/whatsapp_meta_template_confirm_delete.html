@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Excluir template{% endblock %}
+{% block content %}
+<div class="max-w-md bg-white border border-slate-200 rounded-xl p-6">
+    <h1 class="text-lg font-bold text-slate-900 mb-2">Excluir {{ object.name }}?</h1>
+    <p class="text-sm text-slate-500 mb-4">
+        {% if object.meta_template_id %}
+        Também tentamos excluir o template na Meta — se essa chamada falhar (ex.: token expirado), o
+        registro local é removido de qualquer forma. Esta ação não pode ser desfeita.
+        {% else %}
+        Este template ainda não foi enviado pra Meta — só o rascunho local é removido. Esta ação não pode
+        ser desfeita.
+        {% endif %}
+    </p>
+    <form method="post" class="flex gap-2">
+        {% csrf_token %}
+        <button type="submit" class="bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg px-4 py-2">Excluir</button>
+        <a href="{% url 'notifications:whatsapp_meta_templates' %}" class="text-sm text-slate-500 hover:text-slate-800 px-4 py-2">Cancelar</a>
+    </form>
+</div>
+{% endblock %}

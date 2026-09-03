@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from notifications.models import MessageTemplate, WhatsAppMessage
+from notifications.models import MessageTemplate, WhatsAppMessage, WhatsAppMetaTemplate
 
 
 @admin.register(WhatsAppMessage)
@@ -22,3 +22,11 @@ class WhatsAppMessageAdmin(admin.ModelAdmin):
 class MessageTemplateAdmin(admin.ModelAdmin):
     list_display = ("name", "created_by", "created_at")
     search_fields = ("name", "body")
+
+
+@admin.register(WhatsAppMetaTemplate)
+class WhatsAppMetaTemplateAdmin(admin.ModelAdmin):
+    list_display = ("name", "category", "language", "status", "meta_template_id", "submitted_at")
+    list_filter = ("status", "category")
+    search_fields = ("name", "meta_template_id")
+    readonly_fields = ("meta_template_id", "submitted_at", "status_checked_at", "created_at")

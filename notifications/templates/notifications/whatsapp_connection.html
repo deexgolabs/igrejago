@@ -13,8 +13,8 @@
         <strong>Evolution API</strong> (padrão): conecta por QR code, texto livre a qualquer hora.
         <strong>API oficial da Meta</strong>: infraestrutura da própria igreja (painel de desenvolvedor da
         Meta) — texto livre só funciona dentro de 24h da ÚLTIMA mensagem que o contato mandou pra igreja;
-        fora dessa janela a Meta exige um template pré-aprovado por ela, que ainda não é suportado aqui.
-        Use a API oficial pra responder conversa, não pra campanha/lembrete em massa.
+        fora dessa janela a Meta exige um template pré-aprovado por ela (veja "Gerenciar templates" abaixo).
+        Use a API oficial pra responder conversa — broadcast/lembrete em massa segue melhor pela Evolution.
     </p>
     <form method="post" action="{% url 'notifications:whatsapp_meta_config' %}" class="form-padrao space-y-3">
         {% csrf_token %}
@@ -32,8 +32,18 @@
             {{ provider_form.whatsapp_meta_access_token }}
             <span class="text-xs text-slate-400">{{ provider_form.whatsapp_meta_access_token.help_text }}</span>
         </p>
+        <p>
+            <label class="block text-xs font-semibold text-slate-500 mb-1">{{ provider_form.whatsapp_meta_business_account_id.label }}</label>
+            {{ provider_form.whatsapp_meta_business_account_id }}
+            <span class="text-xs text-slate-400">{{ provider_form.whatsapp_meta_business_account_id.help_text }}</span>
+        </p>
         <button type="submit" class="border border-slate-300 rounded-lg px-4 py-2 text-sm hover:bg-slate-100">Salvar canal</button>
     </form>
+    {% if is_meta_cloud %}
+    <a href="{% url 'notifications:whatsapp_meta_templates' %}" class="inline-block mt-4 text-sm text-brand-600 hover:underline">
+        Gerenciar templates de mensagem →
+    </a>
+    {% endif %}
 </div>
 <style>
 .form-padrao input[type="text"], .form-padrao select { width: 100%; border: 1px solid #d1d5db; border-radius: 0.5rem; padding: 0.4rem 0.65rem; font-size: 0.875rem; }

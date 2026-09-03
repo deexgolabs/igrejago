@@ -3,11 +3,18 @@
 self-hosted, conecta por QR code — sem aprovação de conta comercial da
 Meta) ou a API oficial da Meta (WhatsApp Cloud API — texto livre só
 funciona dentro de 24h da última mensagem que o CONTATO mandou pra
-igreja; fora disso a Meta exige um template pré-aprovado por ela, que
-este projeto ainda não suporta — ver `_enviar_via_meta_cloud`). Sem
-`Church.whatsapp_api_configured`, o envio cai no fallback de imprimir
-no console — a fila continua funcionando (e testável) sem nenhuma
-credencial real, nos dois canais."""
+igreja; fora disso a Meta exige um template pré-aprovado por ela — ver
+`_enviar_via_meta_cloud`). Sem `Church.whatsapp_api_configured`, o
+envio cai no fallback de imprimir no console — a fila continua
+funcionando (e testável) sem nenhuma credencial real, nos dois canais.
+
+Gestão de template da Meta (`criar_template_meta`/
+`consultar_status_template_meta`/`excluir_template_meta`, usadas por
+`notifications.WhatsAppMetaTemplate*`): CRUD + submissão pra revisão da
+Meta + consulta manual de status já são reais (chamadas de verdade na
+Graph API). USAR um template já APROVADO pra efetivamente enviar
+mensagem (integrar no dispatcher acima/na fila `WhatsAppMessage`) ainda
+não está feito — próximo passo, fora desta rodada."""
 
 import logging
 import sys
@@ -100,6 +107,62 @@ def _enviar_via_meta_cloud(phone, message, *, church_config):
     except Exception as exc:
         logger.exception("Falha ao enviar WhatsApp para %s via Meta Cloud API", phone)
         return False, str(exc)[:255], ""
+
+
+GRAPH_API_VERSION = "v23.0"
+
+
+def criar_template_meta(*, waba_id, access_token, name, language, category, components):
+    """Submete um template pra revisão da Meta (Business Management API
+    — escopado ao WABA id, credencial diferente do `phone_number_id`
+    usado só pra enviar mensagem). `category` já deve vir minúscula
+    ("marketing"/"utility"/"authentication" — convenção da própria
+    Meta); `components` é a lista completa (`[{"type": "BODY", ...},
+    ...]`) já montada por quem chama. Devolve o JSON cru da resposta
+    (`{"id": ..., "status": ...}`) ou levanta a exceção HTTP — quem
+    chama decide como tratar erro (mesmo espírito de
+    `_enviar_via_meta_cloud`, que já interpreta a mensagem de erro da
+    Meta pra dar feedback legível)."""
+    response = requests.post(
+        f"https://graph.facebook.com/{GRAPH_API_VERSION}/{waba_id}/message_templates",
+        json={"name": name, "language": language, "category": category, "components": components},
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=15,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def consultar_status_template_meta(*, access_token, template_id):
+    """Reconsulta o status direto na Graph API — nunca confiar em cache
+    local pra decidir se um template já foi aprovado (mesmo princípio
+    de `core.mercadopago_billing.consultar_assinatura`: sem webhook de
+    status configurado ainda, quem quiser saber o estado real clica
+    "Atualizar status" e isso chama aqui)."""
+    response = requests.get(
+        f"https://graph.facebook.com/{GRAPH_API_VERSION}/{template_id}",
+        params={"fields": "status,rejected_reason"},
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=15,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def excluir_template_meta(*, waba_id, access_token, name):
+    """Exclui o template também do lado da Meta (por nome — é assim que
+    o endpoint de delete da Business Management API funciona, não por
+    id). Quem chama trata falha como best-effort — a exclusão local do
+    registro acontece de qualquer jeito (ver
+    `WhatsAppMetaTemplateDeleteView`)."""
+    response = requests.delete(
+        f"https://graph.facebook.com/{GRAPH_API_VERSION}/{waba_id}/message_templates",
+        params={"name": name},
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=15,
+    )
+    response.raise_for_status()
+    return response.json()
 
 
 def criar_instancia(church_config, *, instance_name, webhook_url=None, webhook_secret=None):

@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Templates Meta (WhatsApp){% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-slate-900">Templates de mensagem (API oficial da Meta)</h1>
+    <div class="flex gap-2">
+        <a href="{% url 'notifications:whatsapp_connection' %}" class="text-sm text-slate-500 hover:text-slate-800 px-2 py-2">← WhatsApp</a>
+        <a href="{% url 'notifications:whatsapp_meta_template_create' %}" class="text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg px-3 py-2">+ Novo template</a>
+    </div>
+</div>
+
+{% if not templates_configured %}
+<div class="bg-amber-50 border border-amber-200 text-amber-700 text-sm rounded-xl p-4 mb-4">
+    Preencha o <strong>WhatsApp Business Account ID</strong> e o <strong>Access Token</strong> na tela de
+    Conectar WhatsApp antes de enviar um template pra aprovação — dá pra cadastrar o rascunho sem isso, mas
+    não pra submeter.
+</div>
+{% endif %}
+
+<div class="bg-slate-50 border border-slate-200 text-slate-500 text-xs rounded-xl p-4 mb-6">
+    Um template precisa ser <strong>aprovado pela própria Meta</strong> antes de poder ser usado fora da
+    janela de 24h de conversa — a revisão é deles, pode levar de minutos a dias. As variáveis usam a sintaxe
+    própria da Meta (<code>{% templatetag openvariable %}1{% templatetag closevariable %}</code>,
+    <code>{% templatetag openvariable %}2{% templatetag closevariable %}</code>...), diferente do
+    <code>{nome}</code> usado nos templates locais de WhatsApp/e-mail. Templates aprovados aqui ainda precisam ser usados
+    manualmente — o envio automático por template pela fila é um próximo passo, ainda não desta tela.
+</div>
+
+<div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr>
+                <th class="text-left px-4 py-3">Nome</th>
+                <th class="text-left px-4 py-3">Categoria</th>
+                <th class="text-left px-4 py-3">Idioma</th>
+                <th class="text-left px-4 py-3">Status</th>
+                <th class="text-right px-4 py-3">Ações</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+            {% for template in meta_templates %}
+            <tr class="hover:bg-slate-50 align-top">
+                <td class="px-4 py-3 font-mono text-slate-700">{{ template.name }}</td>
+                <td class="px-4 py-3 text-slate-600">{{ template.get_category_display }}</td>
+                <td class="px-4 py-3 text-slate-500">{{ template.language }}</td>
+                <td class="px-4 py-3">
+                    {% if template.status == "APPROVED" %}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">Aprovado</span>
+                    {% elif template.status == "PENDING" %}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full bg-amber-50 text-amber-700">Em análise</span>
+                    {% elif template.status == "REJECTED" %}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full bg-red-50 text-red-700">Rejeitado</span>
+                    {% elif template.status == "DISABLED" %}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full bg-slate-200 text-slate-600">Desativado</span>
+                    {% else %}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full bg-slate-100 text-slate-500">Rascunho</span>
+                    {% endif %}
+                    {% if template.status == "REJECTED" and template.rejection_reason %}
+                    <p class="text-xs text-red-500 mt-1 max-w-xs">{{ template.rejection_reason }}</p>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-3 text-right space-x-2 whitespace-nowrap">
+                    {% if template.pode_editar %}
+                    <a href="{% url 'notifications:whatsapp_meta_template_update' template.pk %}" class="text-slate-500 hover:text-brand-700">Editar</a>
+                    <form method="post" action="{% url 'notifications:whatsapp_meta_template_submit' template.pk %}" class="inline">
+                        {% csrf_token %}
+                        <button type="submit" class="text-brand-600 hover:underline">Enviar pra aprovação</button>
+                    </form>
+                    {% endif %}
+                    {% if template.meta_template_id %}
+                    <form method="post" action="{% url 'notifications:whatsapp_meta_template_refresh_status' template.pk %}" class="inline">
+                        {% csrf_token %}
+                        <button type="submit" class="text-slate-500 hover:text-brand-700">Atualizar status</button>
+                    </form>
+                    {% endif %}
+                    <a href="{% url 'notifications:whatsapp_meta_template_delete' template.pk %}" class="text-slate-500 hover:text-red-600">Excluir</a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">Nenhum template cadastrado ainda.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

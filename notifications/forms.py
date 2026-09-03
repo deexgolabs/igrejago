@@ -1,7 +1,7 @@
 from django import forms
 
 from core.models import Church
-from notifications.models import MessageTemplate
+from notifications.models import MessageTemplate, WhatsAppMetaTemplate
 from people.models import Person
 
 DATETIME_INPUT = forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M")
@@ -10,13 +10,25 @@ DATETIME_INPUT = forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%
 class WhatsAppProviderForm(forms.ModelForm):
     """Escolha de canal na própria tela de Conectar WhatsApp (não em
     Configurações — é operacional/sensível, mesmo espírito de já ficar
-    numa tela separada de sempre). Os 2 campos da Meta só fazem sentido
+    numa tela separada de sempre). Os campos da Meta só fazem sentido
     quando o provider é META_CLOUD, mas ficam sempre no form — bloquear
     isso é responsabilidade do template (mostra/esconde), não do form."""
 
     class Meta:
         model = Church
-        fields = ["whatsapp_provider", "whatsapp_meta_phone_number_id", "whatsapp_meta_access_token"]
+        fields = [
+            "whatsapp_provider",
+            "whatsapp_meta_phone_number_id",
+            "whatsapp_meta_access_token",
+            "whatsapp_meta_business_account_id",
+        ]
+
+
+class WhatsAppMetaTemplateForm(forms.ModelForm):
+    class Meta:
+        model = WhatsAppMetaTemplate
+        fields = ["name", "language", "category", "header_text", "body_text", "footer_text"]
+        widgets = {"body_text": forms.Textarea(attrs={"rows": 4})}
 
 
 class ScheduledMessageForm(forms.Form):

@@ -22,6 +22,12 @@ from notifications.views import (
     WhatsAppConnectView,
     WhatsAppDisconnectView,
     WhatsAppMetaConfigView,
+    WhatsAppMetaTemplateCreateView,
+    WhatsAppMetaTemplateDeleteView,
+    WhatsAppMetaTemplateListView,
+    WhatsAppMetaTemplateRefreshStatusView,
+    WhatsAppMetaTemplateSubmitView,
+    WhatsAppMetaTemplateUpdateView,
     WhatsAppWebhookView,
 )
 
@@ -54,5 +60,27 @@ urlpatterns = [
     path("whatsapp/conectar/", WhatsAppConnectView.as_view(), name="whatsapp_connect"),
     path("whatsapp/desconectar/", WhatsAppDisconnectView.as_view(), name="whatsapp_disconnect"),
     path("whatsapp/canal/", WhatsAppMetaConfigView.as_view(), name="whatsapp_meta_config"),
+    path("whatsapp/templates/", WhatsAppMetaTemplateListView.as_view(), name="whatsapp_meta_templates"),
+    path("whatsapp/templates/novo/", WhatsAppMetaTemplateCreateView.as_view(), name="whatsapp_meta_template_create"),
+    path(
+        "whatsapp/templates/<int:pk>/editar/",
+        WhatsAppMetaTemplateUpdateView.as_view(),
+        name="whatsapp_meta_template_update",
+    ),
+    path(
+        "whatsapp/templates/<int:pk>/excluir/",
+        WhatsAppMetaTemplateDeleteView.as_view(),
+        name="whatsapp_meta_template_delete",
+    ),
+    path(
+        "whatsapp/templates/<int:pk>/enviar/",
+        WhatsAppMetaTemplateSubmitView.as_view(),
+        name="whatsapp_meta_template_submit",
+    ),
+    path(
+        "whatsapp/templates/<int:pk>/atualizar-status/",
+        WhatsAppMetaTemplateRefreshStatusView.as_view(),
+        name="whatsapp_meta_template_refresh_status",
+    ),
     path("webhook/evolution/", WhatsAppWebhookView.as_view(), name="webhook"),
 ]

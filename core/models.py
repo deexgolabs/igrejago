@@ -185,6 +185,11 @@ class Church(models.Model):
         "Access Token (Meta Cloud API)", max_length=500, blank=True,
         help_text="Token permanente gerado no painel de desenvolvedor da Meta pra essa aplicação.",
     )
+    whatsapp_meta_business_account_id = models.CharField(
+        "WhatsApp Business Account ID (Meta Cloud API)", max_length=100, blank=True,
+        help_text="Do painel de desenvolvedor da Meta — necessário só pra gerenciar templates de "
+                   "mensagem (criar/enviar pra aprovação), não pra mandar mensagem avulsa.",
+    )
     whatsapp_send_interval_seconds = models.PositiveIntegerField(
         "Intervalo entre envios (segundos)", default=6,
         help_text="Espera entre uma mensagem e outra ao processar a fila — mandar tudo de uma vez é o "
@@ -311,6 +316,14 @@ class Church(models.Model):
         if self.whatsapp_provider == self.WhatsAppProvider.META_CLOUD:
             return bool(self.whatsapp_meta_phone_number_id and self.whatsapp_meta_access_token)
         return bool(settings.EVOLUTION_API_URL and self.whatsapp_instance and self.whatsapp_send_key)
+
+    @property
+    def whatsapp_meta_templates_configured(self):
+        """Separado de `whatsapp_api_configured` de propósito: gerenciar
+        templates precisa do WABA id (uma credencial a mais), mas mandar
+        mensagem avulsa não — uma igreja configurada só pra enviar não
+        pode ficar bloqueada por não ter preenchido isso."""
+        return bool(self.whatsapp_meta_business_account_id and self.whatsapp_meta_access_token)
 
     @property
     def whatsapp_api_url(self):

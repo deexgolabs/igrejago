@@ -18,8 +18,15 @@ from core.billing import whatsapp_liberado
 from core.models import Church
 from core.tenancy import TenantFormMixin
 from core.views import enviar_email_confirmacao
-from notifications.forms import MessageTemplateForm, ScheduledMessageForm, WhatsAppProviderForm
-from notifications.models import EmailMessage, MessageTemplate, PushSubscription, SMSMessage, WhatsAppMessage
+from notifications.forms import MessageTemplateForm, ScheduledMessageForm, WhatsAppMetaTemplateForm, WhatsAppProviderForm
+from notifications.models import (
+    EmailMessage,
+    MessageTemplate,
+    PushSubscription,
+    SMSMessage,
+    WhatsAppMessage,
+    WhatsAppMetaTemplate,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -351,6 +358,155 @@ class WhatsAppMetaConfigView(IsChurchManagerMixin, View):
         else:
             messages.error(request, "Não deu pra salvar — confira os campos.")
         return redirect("notifications:whatsapp_connection")
+
+
+class WhatsAppMetaTemplateListView(IsChurchManagerMixin, ListView):
+    model = WhatsAppMetaTemplate
+    template_name = "notifications/whatsapp_meta_template_list.html"
+    context_object_name = "meta_templates"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["templates_configured"] = self.request.church.whatsapp_meta_templates_configured
+        return context
+
+
+class WhatsAppMetaTemplateCreateView(TenantFormMixin, IsChurchManagerMixin, CreateView):
+    model = WhatsAppMetaTemplate
+    form_class = WhatsAppMetaTemplateForm
+    template_name = "notifications/whatsapp_meta_template_form.html"
+    success_url = "/mensagens/whatsapp/templates/"
+
+    def form_valid(self, form):
+        messages.success(self.request, "Template criado como rascunho.")
+        return super().form_valid(form)
+
+
+class WhatsAppMetaTemplateUpdateView(IsChurchManagerMixin, UpdateView):
+    form_class = WhatsAppMetaTemplateForm
+    template_name = "notifications/whatsapp_meta_template_form.html"
+    success_url = "/mensagens/whatsapp/templates/"
+
+    def get_queryset(self):
+        # Só dá pra editar em DRAFT/REJECTED — a Meta não permite mudar
+        # um template em análise/aprovado. Tentar editar um PENDING/
+        # APPROVED por URL direta cai fora do queryset e vira 404, mesmo
+        # padrão de escopo já usado no projeto (ex.: líder de departamento).
+        return WhatsAppMetaTemplate.objects.filter(
+            status__in=[WhatsAppMetaTemplate.Status.DRAFT, WhatsAppMetaTemplate.Status.REJECTED]
+        )
+
+    def form_valid(self, form):
+        messages.success(self.request, "Template atualizado.")
+        return super().form_valid(form)
+
+
+class WhatsAppMetaTemplateDeleteView(IsChurchManagerMixin, DeleteView):
+    model = WhatsAppMetaTemplate
+    template_name = "notifications/whatsapp_meta_template_confirm_delete.html"
+    success_url = "/mensagens/whatsapp/templates/"
+
+    def form_valid(self, form):
+        template = self.object
+        config = self.request.church
+        if template.meta_template_id and config.whatsapp_meta_templates_configured:
+            # Best-effort: exclui na Meta também, mas o registro local
+            # some de qualquer jeito mesmo se a chamada externa falhar
+            # (nunca travar uma exclusão local numa API de terceiro fora
+            # do ar/token expirado).
+            try:
+                whatsapp.excluir_template_meta(
+                    access_token=config.whatsapp_meta_access_token,
+                    waba_id=config.whatsapp_meta_business_account_id,
+                    name=template.name,
+                )
+            except Exception:
+                logger.exception("Falha ao excluir template %s na Meta", template.name)
+        messages.success(self.request, "Template removido.")
+        return super().form_valid(form)
+
+
+class WhatsAppMetaTemplateSubmitView(IsChurchManagerMixin, View):
+    """Envia o template pra revisão de verdade na Meta — só a partir de
+    DRAFT/REJECTED. Sucesso grava o id devolvido e vira PENDING; erro
+    HTTP mostra a mensagem da própria Meta (mesmo padrão de
+    `_enviar_via_meta_cloud`), sem mudar o status local."""
+
+    def post(self, request, pk):
+        template = get_object_or_404(
+            WhatsAppMetaTemplate,
+            pk=pk,
+            status__in=[WhatsAppMetaTemplate.Status.DRAFT, WhatsAppMetaTemplate.Status.REJECTED],
+        )
+        config = request.church
+        if not config.whatsapp_meta_templates_configured:
+            messages.error(request, "Preencha o WhatsApp Business Account ID e o Access Token acima antes de enviar.")
+            return redirect("notifications:whatsapp_meta_templates")
+
+        try:
+            data = whatsapp.criar_template_meta(
+                waba_id=config.whatsapp_meta_business_account_id,
+                access_token=config.whatsapp_meta_access_token,
+                name=template.name,
+                language=template.language,
+                category=template.category,
+                components=template.montar_components(),
+            )
+        except Exception as exc:
+            detalhe = str(exc)
+            try:
+                detalhe = exc.response.json().get("error", {}).get("message", detalhe)
+            except Exception:
+                pass
+            messages.error(request, f"A Meta recusou o template: {detalhe}")
+            return redirect("notifications:whatsapp_meta_templates")
+
+        template.meta_template_id = data.get("id", "")
+        template.status = WhatsAppMetaTemplate.Status.PENDING
+        template.submitted_at = timezone.now()
+        template.save(update_fields=["meta_template_id", "status", "submitted_at"])
+        messages.success(request, "Template enviado pra aprovação da Meta.")
+        return redirect("notifications:whatsapp_meta_templates")
+
+
+class WhatsAppMetaTemplateRefreshStatusView(IsChurchManagerMixin, View):
+    """Consulta o status real na Meta — nunca automático (não há webhook
+    de status configurado), sempre por clique explícito. Mesmo princípio
+    de "nunca confiar em cache, sempre reconsultar" de
+    `RecurringPledgeMercadoPagoWebhookView._processar_preapproval`."""
+
+    _STATUS_MAP = {
+        "APPROVED": WhatsAppMetaTemplate.Status.APPROVED,
+        "REJECTED": WhatsAppMetaTemplate.Status.REJECTED,
+        "PENDING": WhatsAppMetaTemplate.Status.PENDING,
+        "IN_REVIEW": WhatsAppMetaTemplate.Status.PENDING,
+        "PAUSED": WhatsAppMetaTemplate.Status.DISABLED,
+        "DISABLED": WhatsAppMetaTemplate.Status.DISABLED,
+    }
+
+    def post(self, request, pk):
+        template = get_object_or_404(WhatsAppMetaTemplate, pk=pk)
+        config = request.church
+        if not template.meta_template_id or not config.whatsapp_meta_templates_configured:
+            messages.error(request, "Este template ainda não foi enviado pra Meta.")
+            return redirect("notifications:whatsapp_meta_templates")
+
+        try:
+            data = whatsapp.consultar_status_template_meta(
+                access_token=config.whatsapp_meta_access_token, template_id=template.meta_template_id,
+            )
+        except Exception:
+            logger.exception("Falha ao consultar status do template %s na Meta", template.pk)
+            messages.error(request, "Não deu pra consultar o status agora — tente de novo em instantes.")
+            return redirect("notifications:whatsapp_meta_templates")
+
+        novo_status = self._STATUS_MAP.get(data.get("status", ""), template.status)
+        template.status = novo_status
+        template.rejection_reason = data.get("rejected_reason", "") or ""
+        template.status_checked_at = timezone.now()
+        template.save(update_fields=["status", "rejection_reason", "status_checked_at"])
+        messages.success(request, f"Status atualizado: {template.get_status_display()}.")
+        return redirect("notifications:whatsapp_meta_templates")
 
 
 class ResendConfirmationEmailView(IsChurchManagerMixin, View):
