@@ -5,6 +5,7 @@ from django.contrib.auth import password_validation
 
 from accounts.models import User
 from core.models import Church, ShortLink, WebhookSubscription
+from people.models import Department, Person
 
 
 class ChurchConfigForm(forms.ModelForm):
@@ -25,7 +26,7 @@ class ChurchConfigForm(forms.ModelForm):
             "whatsapp_send_interval_seconds", "whatsapp_batch_size", "whatsapp_max_retries",
             "admin_alert_emails",
             "pix_key", "pix_key_type", "pix_receiver_name", "pix_receiver_city",
-            "mercadopago_access_token",
+            "mercadopago_access_token", "pagbank_token",
         ]
         widgets = {
             "brand_color": forms.TextInput(attrs={"type": "color"}),
@@ -160,3 +161,40 @@ class WebhookSubscriptionForm(forms.ModelForm):
     class Meta:
         model = WebhookSubscription
         fields = ["url", "event_type", "is_active"]
+
+
+DATE_INPUT = forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d")
+
+
+class CustomReportForm(forms.Form):
+    """Relatório customizável de Pessoas — escopado a Pessoas nesta
+    rodada (caso de uso citado pelo usuário: "pessoas por departamento
+    X período X status"); financeiro/eventos ficam pra uma próxima
+    rodada. Todos os filtros são opcionais — em branco, considera
+    todo mundo."""
+
+    TIPO_CHOICES = [
+        ("", "Todos"),
+        ("membro", "Só membros"),
+        ("visitante", "Só visitantes"),
+    ]
+    AGRUPAR_CHOICES = [
+        ("department", "Departamento"),
+        ("role", "Cargo"),
+        ("mes_cadastro", "Mês de cadastro"),
+        ("faixa_etaria", "Faixa etária"),
+    ]
+
+    department = forms.ModelChoiceField(label="Departamento", queryset=Department.objects.none(), required=False)
+    role = forms.ChoiceField(label="Cargo", choices=[("", "Todos")], required=False)
+    tipo = forms.ChoiceField(label="Tipo", choices=TIPO_CHOICES, required=False)
+    data_inicio = forms.DateField(label="Cadastrado a partir de", required=False, widget=DATE_INPUT, input_formats=["%Y-%m-%d"])
+    data_fim = forms.DateField(label="Cadastrado até", required=False, widget=DATE_INPUT, input_formats=["%Y-%m-%d"])
+    agrupar_por = forms.ChoiceField(label="Agrupar por", choices=AGRUPAR_CHOICES, initial="department")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # `Department`/`Person` são `TenantModel` — mesmo motivo de
+        # sempre, queryset refeito por instância.
+        self.fields["department"].queryset = Department.objects.order_by("name")
+        self.fields["role"].choices = [("", "Todos")] + list(Person.Role.choices)

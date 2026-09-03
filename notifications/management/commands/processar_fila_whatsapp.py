@@ -59,7 +59,8 @@ class Command(BaseCommand):
 
     def _processar_igreja(self, church_config):
         eligible = (
-            WhatsAppMessage.objects.filter(
+            WhatsAppMessage.objects.select_related("meta_template")
+            .filter(
                 Q(status=WhatsAppMessage.Status.PENDING)
                 & (Q(scheduled_for__isnull=True) | Q(scheduled_for__lte=timezone.now()))
                 | Q(status=WhatsAppMessage.Status.FAILED, retry_count__lt=church_config.whatsapp_max_retries)
@@ -71,7 +72,10 @@ class Command(BaseCommand):
         total = len(eligible)
         for index, msg in enumerate(eligible):
             is_retry = msg.status == WhatsAppMessage.Status.FAILED
-            ok, error, external_id = enviar_whatsapp(msg.phone, msg.message, church_config=church_config)
+            ok, error, external_id = enviar_whatsapp(
+                msg.phone, msg.message, church_config=church_config,
+                meta_template=msg.meta_template, template_values=msg.meta_template_values,
+            )
             if ok:
                 msg.status = WhatsAppMessage.Status.SENT
                 msg.sent_at = timezone.now()

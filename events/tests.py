@@ -204,3 +204,67 @@ class TestEventBranding:
     def test_event_without_own_color_uses_church_palette(self, client, free_event, church_config):
         response = client.get(f"/{church_config.slug}/eventos/{free_event.slug}/")
         assert response.status_code == 200
+
+
+@pytest.mark.django_db
+class TestEventPagBank:
+    def test_start_without_config_redirects_with_error(self, client, event, church):
+        registration = Registration.objects.create(church=church, event=event, full_name="Fulano")
+        response = client.get(f"/{church.slug}/eventos/{event.slug}/inscricao/{registration.pk}/pagamento/pagbank/")
+        assert response.status_code == 302
+
+    def test_start_creates_order_and_shows_pay_page(self, client, event, church):
+        from unittest.mock import patch
+
+        church.pagbank_token = "token-pagbank"
+        church.save()
+        registration = Registration.objects.create(church=church, event=event, full_name="Fulano")
+
+        with patch("events.views.pagbank.criar_pedido", return_value=("ORDE_777", "https://img/qr.png", "copiaecola")):
+            response = client.get(f"/{church.slug}/eventos/{event.slug}/inscricao/{registration.pk}/pagamento/pagbank/")
+        assert response.status_code == 200
+        registration.refresh_from_db()
+        assert registration.payment_reference == "ORDE_777"
+
+    def test_webhook_confirms_payment(self, client, event, church):
+        from unittest.mock import patch
+
+        church.pagbank_token = "token-pagbank"
+        church.save()
+        registration = Registration.objects.create(
+            church=church, event=event, full_name="Fulano", payment_reference="ORDE_555",
+        )
+
+        with patch("events.views.pagbank.consultar_pedido", return_value={"charges": [{"status": "PAID"}]}):
+            response = client.post(f"/eventos/webhook/pagbank/?church_id={church.pk}&id=ORDE_555")
+        assert response.status_code == 200
+        registration.refresh_from_db()
+        assert registration.payment_status == Registration.PaymentStatus.PAID
+        assert registration.amount_paid == event.price
+
+    def test_webhook_missing_params_returns_400(self, client):
+        response = client.post("/eventos/webhook/pagbank/")
+        assert response.status_code == 400
+
+
+@pytest.mark.django_db
+class TestEventCalendarFeed:
+    def test_feed_contains_published_event(self, client, event, church):
+        response = client.get(f"/{church.slug}/eventos/calendario.ics")
+        assert response.status_code == 200
+        assert response["Content-Type"].startswith("text/calendar")
+        assert event.title.encode() in response.content
+        assert b"BEGIN:VEVENT" in response.content
+
+    def test_feed_excludes_draft_events(self, client, church):
+        Event.objects.create(
+            church=church, title="Rascunho", start_datetime=timezone.now() + timedelta(days=1),
+            status=Event.EventStatus.DRAFT,
+        )
+        response = client.get(f"/{church.slug}/eventos/calendario.ics")
+        assert b"Rascunho" not in response.content
+
+    def test_single_event_ics_contains_uid(self, client, event, church):
+        response = client.get(f"/{church.slug}/eventos/{event.slug}/calendario.ics")
+        assert response.status_code == 200
+        assert f"event-{event.pk}@{church.slug}.igrejago".encode() in response.content

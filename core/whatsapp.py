@@ -13,8 +13,9 @@ Gestão de template da Meta (`criar_template_meta`/
 `notifications.WhatsAppMetaTemplate*`): CRUD + submissão pra revisão da
 Meta + consulta manual de status já são reais (chamadas de verdade na
 Graph API). USAR um template já APROVADO pra efetivamente enviar
-mensagem (integrar no dispatcher acima/na fila `WhatsAppMessage`) ainda
-não está feito — próximo passo, fora desta rodada."""
+mensagem já está feito (ver `enviar_whatsapp(..., meta_template=...)`
+abaixo) — falta só o webhook de status/entrega assinado oficialmente
+pela Meta (`notifications.MetaWhatsAppWebhookView`)."""
 
 import logging
 import sys
@@ -25,8 +26,10 @@ from core.models import Church
 
 logger = logging.getLogger(__name__)
 
+GRAPH_API_VERSION = "v23.0"
 
-def enviar_whatsapp(phone, message, *, church_config):
+
+def enviar_whatsapp(phone, message, *, church_config, meta_template=None, template_values=None):
     """Envia UMA mensagem agora, pelo canal configurado nesta igreja.
     Devolve (True, "", external_id) em sucesso ou (False, "motivo", "")
     em falha — quem processa a fila (`processar_fila_whatsapp`) usa o
@@ -36,12 +39,23 @@ def enviar_whatsapp(phone, message, *, church_config):
     só implementado pra Evolution — ver `WhatsAppWebhookView`). Não
     aplica nenhum intervalo/espera aqui — isso é responsabilidade de
     quem chama em loop, pra manter esta função simples e testável
-    isoladamente."""
+    isoladamente.
+
+    `meta_template`/`template_values` (opcionais): pedem pra tentar
+    mandar via template aprovado da Meta em vez de texto livre — só tem
+    efeito no canal Meta Cloud E com `meta_template.status == APPROVED`
+    (ver `_enviar_via_meta_cloud`); em qualquer outro caso (Evolution,
+    sem template, template não aprovado) é ignorado e `message` (texto
+    livre, já renderizado) é usado normalmente — nunca quebra quem não
+    usa isso."""
     if not phone:
         return False, "Sem telefone", ""
 
     if church_config.whatsapp_provider == Church.WhatsAppProvider.META_CLOUD:
-        return _enviar_via_meta_cloud(phone, message, church_config=church_config)
+        return _enviar_via_meta_cloud(
+            phone, message, church_config=church_config,
+            meta_template=meta_template, template_values=template_values,
+        )
     return _enviar_via_evolution(phone, message, church_config=church_config)
 
 
@@ -66,22 +80,40 @@ def _enviar_via_evolution(phone, message, *, church_config):
         return False, str(exc)[:255], ""
 
 
-def _enviar_via_meta_cloud(phone, message, *, church_config):
+def _enviar_via_meta_cloud(phone, message, *, church_config, meta_template=None, template_values=None):
     """WhatsApp Cloud API oficial da Meta — `phone`/`token` são da
     PRÓPRIA igreja (painel de desenvolvedor da Meta), não infraestrutura
     desta plataforma. Texto livre (`type: text`) só é aceito pela Meta
     dentro da janela de 24h da última mensagem que o CONTATO mandou —
     fora disso, ela recusa com um erro específico (código 131047 ou
     mensagem citando "template"), tratado aqui pra devolver um motivo
-    compreensível em vez da exceção HTTP crua."""
+    compreensível em vez da exceção HTTP crua. Com um `meta_template`
+    APROVADO, manda `type: template` em vez de `type: text` — essa é a
+    única forma de mandar fora da janela de 24h."""
     if not church_config.whatsapp_api_configured:
         _print_safe(f"[WhatsApp Meta Cloud — console fallback] Para {phone}: {message}")
         return True, "", ""
 
+    if meta_template is not None and meta_template.status == meta_template.Status.APPROVED:
+        payload = {
+            "messaging_product": "whatsapp", "to": phone, "type": "template",
+            "template": {
+                "name": meta_template.name,
+                "language": {"code": meta_template.language},
+                "components": (
+                    [{"type": "body", "parameters": [
+                        {"type": "text", "text": str(v)} for v in template_values
+                    ]}] if template_values else []
+                ),
+            },
+        }
+    else:
+        payload = {"messaging_product": "whatsapp", "to": phone, "type": "text", "text": {"body": message}}
+
     try:
         response = requests.post(
-            f"https://graph.facebook.com/v20.0/{church_config.whatsapp_meta_phone_number_id}/messages",
-            json={"messaging_product": "whatsapp", "to": phone, "type": "text", "text": {"body": message}},
+            f"https://graph.facebook.com/{GRAPH_API_VERSION}/{church_config.whatsapp_meta_phone_number_id}/messages",
+            json=payload,
             headers={"Authorization": f"Bearer {church_config.whatsapp_meta_access_token}"},
             timeout=15,
         )
@@ -98,7 +130,8 @@ def _enviar_via_meta_cloud(phone, message, *, church_config):
         if "template" in erro_meta.lower() or "24" in erro_meta:
             detalhe = (
                 "A Meta recusou texto livre fora da janela de 24h da última mensagem do contato — "
-                "fora dessa janela ela exige um template pré-aprovado, ainda não suportado aqui."
+                "fora dessa janela é preciso mandar usando um template aprovado (Mensagens → WhatsApp "
+                "→ Gerenciar templates)."
             )
         elif erro_meta:
             detalhe = erro_meta
@@ -107,9 +140,6 @@ def _enviar_via_meta_cloud(phone, message, *, church_config):
     except Exception as exc:
         logger.exception("Falha ao enviar WhatsApp para %s via Meta Cloud API", phone)
         return False, str(exc)[:255], ""
-
-
-GRAPH_API_VERSION = "v23.0"
 
 
 def criar_template_meta(*, waba_id, access_token, name, language, category, components):

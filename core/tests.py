@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 import pytest
 
 from core.colors import generate_palette
@@ -121,6 +123,65 @@ class TestWhatsAppProviderDispatch:
         church_config.whatsapp_meta_phone_number_id = "123"
         church_config.whatsapp_meta_access_token = "abc"
         assert church_config.whatsapp_api_configured is True
+
+    def test_approved_template_sends_type_template_payload(self, church_config):
+        from unittest.mock import MagicMock, patch
+
+        from core.models import Church
+        from notifications.models import WhatsAppMetaTemplate
+
+        church_config.whatsapp_provider = Church.WhatsAppProvider.META_CLOUD
+        church_config.whatsapp_meta_phone_number_id = "123456"
+        church_config.whatsapp_meta_access_token = "token-abc"
+        church_config.save()
+        template = WhatsAppMetaTemplate.objects.create(
+            church=church_config, name="aviso", body_text="Olá {{1}}.",
+            status=WhatsAppMetaTemplate.Status.APPROVED, language="pt_BR",
+        )
+
+        fake_response = MagicMock()
+        fake_response.raise_for_status.return_value = None
+        fake_response.json.return_value = {"messages": [{"id": "wamid.TPL"}]}
+        with patch("core.whatsapp.requests.post", return_value=fake_response) as mock_post:
+            ok, error, external_id = enviar_whatsapp(
+                "62999998888", "texto livre ignorado", church_config=church_config,
+                meta_template=template, template_values=["Maria"],
+            )
+
+        assert ok is True
+        assert external_id == "wamid.TPL"
+        payload = mock_post.call_args.kwargs["json"]
+        assert payload["type"] == "template"
+        assert payload["template"]["name"] == "aviso"
+        assert payload["template"]["components"][0]["parameters"][0]["text"] == "Maria"
+
+    def test_unapproved_template_falls_back_to_free_text(self, church_config):
+        from unittest.mock import MagicMock, patch
+
+        from core.models import Church
+        from notifications.models import WhatsAppMetaTemplate
+
+        church_config.whatsapp_provider = Church.WhatsAppProvider.META_CLOUD
+        church_config.whatsapp_meta_phone_number_id = "123456"
+        church_config.whatsapp_meta_access_token = "token-abc"
+        church_config.save()
+        template = WhatsAppMetaTemplate.objects.create(
+            church=church_config, name="pendente", body_text="Olá {{1}}.",
+            status=WhatsAppMetaTemplate.Status.PENDING,
+        )
+
+        fake_response = MagicMock()
+        fake_response.raise_for_status.return_value = None
+        fake_response.json.return_value = {"messages": [{"id": "wamid.TXT"}]}
+        with patch("core.whatsapp.requests.post", return_value=fake_response) as mock_post:
+            enviar_whatsapp(
+                "62999998888", "texto livre de verdade", church_config=church_config,
+                meta_template=template, template_values=["Maria"],
+            )
+
+        payload = mock_post.call_args.kwargs["json"]
+        assert payload["type"] == "text"
+        assert payload["text"]["body"] == "texto livre de verdade"
 
 
 @pytest.mark.django_db
@@ -875,3 +936,173 @@ class TestPublicUrlUsesShortLinkWhenAvailable:
             church=church, slug="minha-igreja", label="Bio", target_path=page.get_absolute_url(),
         )
         assert page.public_url == "https://igrejago.link/minha-igreja"
+
+
+@pytest.mark.django_db
+class TestDashboardFinancialMetrics:
+    def test_shows_arrecadado_and_ticket_medio_for_unrestricted_manager(self, pastor_client, church):
+        from finance.models import Transaction
+
+        Transaction.objects.create(
+            church=church, type="INCOME", category="DONATION", amount=100, date=date.today(),
+        )
+        Transaction.objects.create(
+            church=church, type="INCOME", category="TITHE", amount=200, date=date.today(),
+        )
+        response = pastor_client.get("/")
+        assert response.context["arrecadado_mes"] == 300
+        assert "financeiro_chart" in response.context
+
+    def test_hidden_from_scoped_department_leader(self, church):
+        from accounts.models import User
+        from finance.models import Transaction
+        from people.models import Department, Person
+
+        Transaction.objects.create(church=church, type="INCOME", category="DONATION", amount=100, date=date.today())
+        leader_person = Person.objects.create(church=church, full_name="Líder de Louvor")
+        Department.objects.create(church=church, name="Louvor", leader=leader_person)
+        leader_user = User.objects.create_user(
+            username="lider-financeiro", password="teste12345", role=User.Role.LEADER, church=church,
+            person=leader_person,
+        )
+        from django.test import Client
+
+        client = Client()
+        client.force_login(leader_user)
+        response = client.get("/")
+        assert response.status_code == 200
+        assert "arrecadado_mes" not in response.context
+
+    def test_confirmacao_escala_percentage(self, pastor_client, church, person):
+        from escalas.models import Escala, EscalaVoluntario
+        from people.models import Department
+
+        department = Department.objects.create(church=church, name="Louvor")
+        escala = Escala.objects.create(church=church, department=department, date=date.today() + timedelta(days=3))
+        EscalaVoluntario.objects.create(
+            church=church, escala=escala, person=person, status=EscalaVoluntario.Status.CONFIRMED,
+        )
+        response = pastor_client.get("/")
+        assert response.context["confirmacao_escala"] == 100
+
+    def test_confirmacao_escala_none_without_future_escalas(self, pastor_client, church):
+        response = pastor_client.get("/")
+        assert response.context["confirmacao_escala"] is None
+
+
+@pytest.mark.django_db
+class TestCustomReport:
+    def test_groups_by_department(self, pastor_client, church):
+        from people.models import Department, Person
+
+        department = Department.objects.create(church=church, name="Louvor")
+        Person.objects.create(church=church, full_name="A", is_member=True, department=department)
+        Person.objects.create(church=church, full_name="B", is_member=True, department=department)
+
+        response = pastor_client.get("/relatorio-customizado/", {"agrupar_por": "department"})
+        assert response.status_code == 200
+        rows = response.context["rows"]
+        assert {"label": "Louvor", "total": 2} in rows
+
+    def test_groups_by_faixa_etaria(self, pastor_client, church):
+        from people.models import Person
+
+        Person.objects.create(church=church, full_name="Crianca", birth_date=date.today() - timedelta(days=365 * 8))
+        Person.objects.create(church=church, full_name="Adulto", birth_date=date.today() - timedelta(days=365 * 30))
+
+        response = pastor_client.get("/relatorio-customizado/", {"agrupar_por": "faixa_etaria"})
+        rows = {row["label"]: row["total"] for row in response.context["rows"]}
+        assert rows.get("0-12") == 1
+        assert rows.get("26-40") == 1
+
+    def test_filters_by_tipo_membro(self, pastor_client, church):
+        from people.models import Person
+
+        Person.objects.create(church=church, full_name="Membro", is_member=True)
+        Person.objects.create(church=church, full_name="Visitante", is_visitor=True)
+
+        response = pastor_client.get("/relatorio-customizado/", {"agrupar_por": "role", "tipo": "membro"})
+        total = response.context["total"]
+        assert total == 1
+
+    def test_no_query_shows_empty_state(self, pastor_client, church):
+        response = pastor_client.get("/relatorio-customizado/")
+        assert response.context["rows"] is None
+
+    def test_member_cannot_access(self, member_client):
+        response = member_client.get("/relatorio-customizado/")
+        assert response.status_code == 403
+
+    def test_export_returns_xlsx(self, pastor_client, church):
+        from people.models import Person
+
+        Person.objects.create(church=church, full_name="A", is_member=True)
+        response = pastor_client.get("/relatorio-customizado/exportar.xlsx", {"agrupar_por": "role"})
+        assert response.status_code == 200
+        assert "spreadsheetml" in response["Content-Type"]
+
+
+@pytest.mark.django_db
+class TestPWABranding:
+    def test_manifest_uses_generic_icon_without_logo(self, pastor_client, church):
+        response = pastor_client.get("/manifest.json")
+        data = response.json()
+        assert data["icons"][0]["src"] == "/static/icons/icon-192.png"
+
+    def test_manifest_uses_dynamic_icon_with_logo(self, pastor_client, church):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        church.logo = SimpleUploadedFile("logo.png", _pixel_png(), content_type="image/png")
+        church.save()
+        response = pastor_client.get("/manifest.json")
+        data = response.json()
+        assert f"/icone/{church.pk}/192.png" in data["icons"][0]["src"]
+
+    def test_church_icon_renders_png_from_logo(self, client, church):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        church.logo = SimpleUploadedFile("logo.png", _pixel_png(), content_type="image/png")
+        church.save()
+        response = client.get(f"/icone/{church.pk}/192.png")
+        assert response.status_code == 200
+        assert response["Content-Type"] == "image/png"
+
+    def test_church_icon_404_without_logo(self, client, church):
+        response = client.get(f"/icone/{church.pk}/192.png")
+        assert response.status_code == 404
+
+    def test_church_icon_404_for_unsupported_size(self, client, church):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        church.logo = SimpleUploadedFile("logo.png", _pixel_png(), content_type="image/png")
+        church.save()
+        response = client.get(f"/icone/{church.pk}/999.png")
+        assert response.status_code == 404
+
+    def test_assetlinks_empty_without_android_config(self, client):
+        response = client.get("/.well-known/assetlinks.json")
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_assetlinks_lists_configured_church(self, client, church):
+        church.android_package_name = "br.com.igrejago.teste"
+        church.android_sha256_fingerprint = "AA:BB:CC"
+        church.save()
+        response = client.get("/.well-known/assetlinks.json")
+        data = response.json()
+        assert data[0]["target"]["package_name"] == "br.com.igrejago.teste"
+
+    def test_service_worker_has_real_fetch_handler(self, client):
+        response = client.get("/sw.js")
+        assert b"self.addEventListener('fetch'" in response.content
+        assert b"e => {}" not in response.content  # não é mais o stub vazio de antes
+
+
+def _pixel_png():
+    """PNG 1x1 válido, mínimo, pra testar `church_icon` sem depender de
+    um arquivo de imagem real no repositório."""
+    import base64
+
+    return base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )

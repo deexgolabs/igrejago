@@ -29,7 +29,7 @@ from core.reports import (
     generate_livro_razao_pdf,
 )
 from events.pix import build_pix_payload
-from finance import mercadopago
+from finance import mercadopago, pagbank
 from finance.balanco import balanco_patrimonial, livro_razao
 from finance.dre import dre_breakdown, dre_por_conta_contabil, saldo_acumulado
 from finance.forms import (
@@ -661,6 +661,93 @@ class DonationWebhookView(View):
                 )
                 _disparar_webhook_doacao(transaction)
         return HttpResponse(status=200)
+
+
+class DonationPagBankStartView(LoginRequiredMixin, View):
+    """Segundo gateway, mesmo padrão exato de `DonationMercadoPagoStartView`
+    — os dois podem estar configurados ao mesmo tempo (a igreja escolhe
+    na hora, `donation_pay.html` mostra os botões que estiverem
+    configurados)."""
+
+    def get(self, request, pk):
+        donation = get_object_or_404(Donation, pk=pk)
+        church_config = request.church
+        if not church_config.pagbank_configured:
+            messages.error(request, "Pagamento via PagBank não está configurado.")
+            return redirect("finance:donation_pay", pk=pk)
+
+        base_url = request.build_absolute_uri("/")[:-1]
+        notification_url = base_url + reverse("finance:donation_pagbank_webhook") + f"?church_id={church_config.pk}"
+        try:
+            order_id, qr_image_url, qr_copia_cola = pagbank.criar_pedido(
+                token=church_config.pagbank_token, donation=donation, notification_url=notification_url,
+            )
+        except Exception:
+            logger.exception("Falha ao criar pedido no PagBank para a doação %s", pk)
+            messages.error(request, "Não foi possível iniciar o pagamento pelo PagBank agora. Tente o PIX abaixo.")
+            return redirect("finance:donation_pay", pk=pk)
+
+        donation.payment_reference = order_id
+        donation.save(update_fields=["payment_reference"])
+        return render(request, "finance/donation_pagbank_pay.html", {
+            "donation": donation, "qr_image_url": qr_image_url, "qr_copia_cola": qr_copia_cola,
+        })
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class PagBankWebhookView(View):
+    """Mesmo padrão de `DonationWebhookView` — igreja vem do `?church_id=`
+    embutido na `notification_url`, nunca confia no corpo do POST,
+    sempre reconsulta a API antes de marcar como pago."""
+
+    def post(self, request):
+        church_id = request.GET.get("church_id")
+        order_id = request.GET.get("id") or self._order_id_from_body(request)
+        if not order_id or not church_id:
+            return HttpResponseBadRequest("missing order id or church_id")
+
+        church_config = get_object_or_404(Church, pk=church_id)
+        if not church_config.pagbank_configured:
+            return HttpResponseBadRequest("pagbank not configured")
+
+        try:
+            pedido = pagbank.consultar_pedido(token=church_config.pagbank_token, order_id=order_id)
+        except Exception:
+            logger.exception("Falha ao reconsultar pedido %s no PagBank", order_id)
+            return HttpResponse(status=502)
+
+        if not pagbank.pedido_esta_pago(pedido):
+            return HttpResponse(status=200)
+
+        donation = Donation.todas_as_igrejas.filter(
+            payment_reference=order_id, church=church_config, status=Donation.Status.PENDING
+        ).first()
+        if donation:
+            donation.status = Donation.Status.PAID
+            donation.save(update_fields=["status"])
+            transaction = Transaction.todas_as_igrejas.create(
+                church=church_config,
+                type=Transaction.Type.INCOME, category=Transaction.Category.DONATION,
+                amount=donation.amount,
+                date=date.today(), description="Doação via PagBank (Portal do Membro)",
+                person=donation.person, payment_method=Transaction.PaymentMethod.PIX,
+            )
+            _disparar_webhook_doacao(transaction)
+        return HttpResponse(status=200)
+
+    @staticmethod
+    def _order_id_from_body(request):
+        """Nota de honestidade: não confirmado ao vivo se o PagBank manda
+        o id do pedido por querystring ou no corpo — tenta os dois,
+        nunca deixa um corpo que não seja JSON derrubar a request (o
+        corpo de um POST de teste sem payload, por exemplo, não é JSON
+        válido nem vazio)."""
+        if not request.body:
+            return None
+        try:
+            return json.loads(request.body).get("id")
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+            return None
 
 
 class DonationListView(IsChurchManagerMixin, ListView):

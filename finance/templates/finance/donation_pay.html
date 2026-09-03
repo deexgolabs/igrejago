@@ -13,12 +13,22 @@
     </a>
     {% endif %}
 
-    {% if donation.status != 'PAID' and church_config.mercadopago_configured %}
+    {% if donation.status != 'PAID' %}
+    {% if church_config.mercadopago_configured %}
     <a href="{% url 'finance:donation_mercadopago_start' donation.pk %}"
        class="block text-center text-white font-medium rounded-lg py-2.5 text-sm mb-4" style="background:{{ paleta_marca.600 }}">
         Pagar com Mercado Pago (cartão, PIX, boleto)
     </a>
+    {% endif %}
+    {% if church_config.pagbank_configured %}
+    <a href="{% url 'finance:donation_pagbank_start' donation.pk %}"
+       class="block text-center text-white font-medium rounded-lg py-2.5 text-sm mb-4" style="background:{{ paleta_marca.600 }}">
+        Pagar com PagBank (PIX)
+    </a>
+    {% endif %}
+    {% if church_config.mercadopago_configured or church_config.pagbank_configured %}
     <p class="text-xs text-slate-400 mb-4">— ou pague direto pelo PIX abaixo —</p>
+    {% endif %}
     {% endif %}
 
     {% if donation.status != 'PAID' %}
@@ -27,10 +37,10 @@
     <p class="text-xs text-slate-400 mb-1">PIX Copia e Cola</p>
     <textarea readonly class="w-full text-xs border border-slate-300 rounded-lg p-2 mb-4 h-20" onclick="this.select()">{{ pix_payload }}</textarea>
     <p class="text-sm text-amber-600 bg-amber-50 rounded-lg p-3">
-        Pagando pelo PIX acima, aguarde a confirmação da secretaria. Pagando pelo Mercado Pago,
-        a confirmação é automática.
+        Pagando pelo PIX acima, aguarde a confirmação da secretaria. Pagando pelo Mercado Pago ou
+        PagBank, a confirmação é automática.
     </p>
-    {% elif not church_config.mercadopago_configured %}
+    {% elif not church_config.mercadopago_configured and not church_config.pagbank_configured %}
     <p class="text-sm text-amber-600 bg-amber-50 rounded-lg p-3">
         A igreja ainda não configurou uma forma de pagamento online. Entre em contato com a
         secretaria para combinar a doação.

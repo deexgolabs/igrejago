@@ -661,16 +661,28 @@ class CampaignSendView(CanManagePeopleMixin, View):
             return render(request, self.template_name, {"form": form, "recipient_count": people.count()})
 
         label = form.cleaned_data["campaign_label"] or f"Campanha {date.today():%d/%m/%Y}"
+        meta_template = form.cleaned_data.get("meta_template")
+        value_lines = form.cleaned_data.get("meta_template_value_lines")
+
+        def _montar_mensagem(person):
+            if meta_template:
+                valores = [linha.format(nome=person.full_name) for linha in value_lines]
+                return meta_template.renderizar_preview(valores), valores
+            return form.cleaned_data["message"].format(nome=person.full_name), []
+
         queued = WhatsAppMessage.objects.bulk_create([
             WhatsAppMessage(
                 church=request.church,
                 person=person,
                 phone=person.whatsapp_number,
-                message=form.cleaned_data["message"].format(nome=person.full_name),
+                message=texto,
+                meta_template=meta_template,
+                meta_template_values=valores,
                 campaign_label=label,
                 created_by=request.user,
             )
             for person in people
+            for texto, valores in [_montar_mensagem(person)]
         ])
 
         messages.success(

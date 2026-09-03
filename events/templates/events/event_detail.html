@@ -7,9 +7,10 @@
     {% endif %}
     <div class="p-6">
         <h1 class="text-xl font-bold text-slate-900 mb-1">{{ event.title }}</h1>
-        <p class="text-sm text-slate-500 mb-4">{{ event.start_datetime|date:"d/m/Y H:i" }} · {{ event.location }}</p>
+        <p class="text-sm text-slate-500 mb-1">{{ event.start_datetime|date:"d/m/Y H:i" }} · {{ event.location }}</p>
+        <a href="{% url 'events_public:calendar_single' event.church.slug event.slug %}" class="text-xs text-brand-600 hover:underline">📅 Adicionar ao calendário</a>
 
-        {{ event.description|linebreaks }}
+        <div class="mt-4">{{ event.description|linebreaks }}</div>
 
         {% if event.extra_info %}
         <div class="bg-slate-50 border border-slate-200 rounded-lg p-4 mt-4 text-sm text-slate-600">

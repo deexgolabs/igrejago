@@ -41,7 +41,24 @@ class WhatsAppMessage(TenantModel):
         "Telefone", max_length=20,
         help_text="Snapshot do número no momento do envio — funciona mesmo se não vinculado a uma Pessoa.",
     )
-    message = models.TextField("Mensagem")
+    message = models.TextField(
+        "Mensagem",
+        help_text="Texto já renderizado e legível — sempre preenchido, mesmo quando enviada via "
+                   "template Meta abaixo (serve de fallback pro canal Evolution, pro e-mail de "
+                   "fallback e pro log/auditoria).",
+    )
+    meta_template = models.ForeignKey(
+        "notifications.WhatsAppMetaTemplate", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="mensagens_enviadas",
+        verbose_name="Template Meta (opcional)",
+        help_text="Preenchido só quando o envio deve tentar usar um template aprovado da API oficial "
+                   "da Meta — fora da janela de 24h, é a única forma de mandar mensagem por lá. Se o "
+                   "template não estiver mais aprovado na hora do envio, cai pro texto livre acima.",
+    )
+    meta_template_values = models.JSONField(
+        "Valores das variáveis do template", default=list, blank=True,
+        help_text="Lista na ordem {{1}}, {{2}}... já resolvida (ex.: {nome} já virou o nome de verdade).",
+    )
 
     status = models.CharField("Status", max_length=10, choices=Status.choices, default=Status.PENDING)
     scheduled_for = models.DateTimeField(
@@ -292,6 +309,29 @@ class WhatsAppMetaTemplate(TenantModel):
         if self.buttons:
             components.append({"type": "BUTTONS", "buttons": self.buttons})
         return components
+
+    def contar_variaveis(self):
+        """Quantas variáveis distintas {{1}}, {{2}}... o corpo usa — só
+        pra validar no formulário de envio que a quantidade de valores
+        informados bate com o template escolhido."""
+        import re
+        numeros = {int(n) for n in re.findall(r"\{\{\s*(\d+)\s*\}\}", self.body_text)}
+        return len(numeros)
+
+    def renderizar_preview(self, valores):
+        """Troca {{1}}, {{2}}... pelos `valores` na ordem — sintaxe
+        posicional da própria Meta, diferente do `.format(nome=...)`
+        usado nos templates locais de WhatsApp/e-mail. Só gera um texto
+        legível pra registro/fallback — o envio de verdade via Meta manda
+        os valores separados, não este texto (ver `core.whatsapp
+        ._enviar_via_meta_cloud`)."""
+        import re
+
+        def _substituir(match):
+            indice = int(match.group(1)) - 1
+            return str(valores[indice]) if 0 <= indice < len(valores) else match.group(0)
+
+        return re.sub(r"\{\{\s*(\d+)\s*\}\}", _substituir, self.body_text)
 
 
 class SMSMessage(TenantModel):

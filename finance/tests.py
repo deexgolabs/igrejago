@@ -166,6 +166,59 @@ class TestDonation:
 
 
 @pytest.mark.django_db
+class TestDonationPagBank:
+    """Segundo gateway — mesmo padrão de teste do Mercado Pago
+    (mock de `finance.pagbank`, nunca chamada real)."""
+
+    def test_start_without_config_shows_error(self, member_client, member_user, person, church_config):
+        member_user.person = person
+        member_user.save()
+        donation = Donation.objects.create(church=church_config, person=person, amount=50)
+        response = member_client.get(f"/financeiro/doacoes/{donation.pk}/pagar/pagbank/")
+        assert response.status_code == 302
+
+    def test_start_creates_order_and_shows_pay_page(self, member_client, member_user, person, church_config):
+        member_user.person = person
+        member_user.save()
+        church_config.pagbank_token = "token-pagbank"
+        church_config.save()
+        donation = Donation.objects.create(church=church_config, person=person, amount=50)
+
+        with patch("finance.views.pagbank.criar_pedido", return_value=("ORDE_123", "https://img/qr.png", "00020126...")):
+            response = member_client.get(f"/financeiro/doacoes/{donation.pk}/pagar/pagbank/")
+        assert response.status_code == 200
+        donation.refresh_from_db()
+        assert donation.payment_reference == "ORDE_123"
+        assert b"qr.png" in response.content
+
+    def test_webhook_confirms_payment_and_creates_transaction(self, client, person, church):
+        church.pagbank_token = "token-pagbank"
+        church.save()
+        donation = Donation.objects.create(church=church, person=person, amount=50, payment_reference="ORDE_999")
+
+        with patch("finance.views.pagbank.consultar_pedido", return_value={"charges": [{"status": "PAID"}]}):
+            response = client.post(f"/financeiro/doacoes/webhook/pagbank/?church_id={church.pk}&id=ORDE_999")
+        assert response.status_code == 200
+        donation.refresh_from_db()
+        assert donation.status == Donation.Status.PAID
+        assert Transaction.objects.filter(person=person, category=Transaction.Category.DONATION, amount=50).exists()
+
+    def test_webhook_ignores_unpaid_order(self, client, person, church):
+        church.pagbank_token = "token-pagbank"
+        church.save()
+        donation = Donation.objects.create(church=church, person=person, amount=50, payment_reference="ORDE_888")
+
+        with patch("finance.views.pagbank.consultar_pedido", return_value={"charges": [{"status": "WAITING"}]}):
+            client.post(f"/financeiro/doacoes/webhook/pagbank/?church_id={church.pk}&id=ORDE_888")
+        donation.refresh_from_db()
+        assert donation.status == Donation.Status.PENDING
+
+    def test_webhook_missing_params_returns_400(self, client):
+        response = client.post("/financeiro/doacoes/webhook/pagbank/")
+        assert response.status_code == 400
+
+
+@pytest.mark.django_db
 class TestDonationReceipt:
     def test_donor_can_download_own_receipt(self, member_client, member_user, person, church_config):
         member_user.person = person

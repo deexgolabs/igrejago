@@ -3,6 +3,7 @@ from django.utils import timezone
 
 from accounts.models import User
 from core.lgpd import privacy_consent_label
+from notifications.models import WhatsAppMetaTemplate
 from people.models import Department, Family, Person, Tag
 
 # LANGUAGE_CODE = 'pt-br' faz o Django esperar dd/mm/aaaa nos <input type="date">
@@ -153,9 +154,46 @@ class CampaignForm(forms.Form):
         help_text="Só pra identificar esse envio na fila (ex.: 'Culto especial 24/08'). Opcional.",
     )
     message = forms.CharField(
-        label="Mensagem", widget=forms.Textarea(attrs={"rows": 4}),
+        label="Mensagem", widget=forms.Textarea(attrs={"rows": 4}), required=False,
         help_text="Use {nome} para personalizar com o nome de cada pessoa.",
     )
+    meta_template = forms.ModelChoiceField(
+        label="Ou usar template aprovado da Meta (opcional)",
+        queryset=WhatsAppMetaTemplate.objects.none(), required=False,
+        help_text="Necessário fora da janela de 24h de conversa no canal oficial da Meta.",
+    )
+    meta_template_values = forms.CharField(
+        label="Valores das variáveis do template (um por linha, na ordem {{1}}, {{2}}...)",
+        widget=forms.Textarea(attrs={"rows": 3}), required=False,
+        help_text="Pode usar {nome} — vira o nome de cada pessoa, igual a Mensagem acima.",
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # `WhatsAppMetaTemplate` é `TenantModel` — mesmo motivo de sempre,
+        # o queryset declarado na classe roda sem igreja no thread-local.
+        self.fields["meta_template"].queryset = WhatsAppMetaTemplate.objects.filter(
+            status=WhatsAppMetaTemplate.Status.APPROVED
+        )
+
+    def clean(self):
+        cleaned = super().clean()
+        meta_template = cleaned.get("meta_template")
+        message = (cleaned.get("message") or "").strip()
+        if meta_template:
+            linhas = [
+                linha.strip() for linha in (cleaned.get("meta_template_values") or "").splitlines() if linha.strip()
+            ]
+            esperado = meta_template.contar_variaveis()
+            if len(linhas) != esperado:
+                raise forms.ValidationError(
+                    f"Esse template usa {esperado} variável(is) — informe exatamente {esperado} "
+                    f"valor(es), um por linha (você informou {len(linhas)})."
+                )
+            cleaned["meta_template_value_lines"] = linhas
+        elif not message:
+            raise forms.ValidationError("Escreva uma mensagem ou escolha um template aprovado da Meta.")
+        return cleaned
 
 
 class EmailCampaignForm(forms.Form):

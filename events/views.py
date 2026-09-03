@@ -1,5 +1,7 @@
 import csv
+import json
 import logging
+from datetime import timedelta
 
 from django.contrib import messages
 from django.http import HttpResponse, HttpResponseBadRequest
@@ -12,12 +14,13 @@ from django.views.generic import CreateView, DeleteView, DetailView, ListView, U
 
 from accounts.mixins import IsChurchManagerMixin
 from core.colors import generate_palette
+from core.ics import eventos_para_ics
 from core.models import Church
 from core.push import enviar_push_para_usuario
 from core.qr import qr_data_uri
 from core.ratelimit import RateLimitMixin
 from core.tenancy import PublicChurchMixin, TenantFormMixin
-from events import mercadopago
+from events import mercadopago, pagbank
 from events.forms import EventForm, PublicRegistrationForm
 from events.models import Event, Registration
 from events.pix import build_pix_payload
@@ -82,6 +85,36 @@ class EventDetailView(PublicChurchMixin, DetailView):
         if self.object.brand_color:
             context["paleta_marca"] = generate_palette(self.object.brand_color)
         return context
+
+
+class EventCalendarFeedView(PublicChurchMixin, View):
+    """Feed `.ics` público com todos os eventos publicados — qualquer
+    app de calendário (Google, Apple, Outlook) importa direto pela URL,
+    sem precisar de OAuth/conta conectada. Inclui os últimos 30 dias
+    também (não só futuros), pra um evento recém-passado não sumir do
+    calendário de quem já tinha assinado."""
+
+    def get(self, request, church_slug):
+        desde = timezone.now() - timedelta(days=30)
+        eventos = Event.objects.filter(
+            status=Event.EventStatus.PUBLISHED, start_datetime__gte=desde,
+        ).order_by("start_datetime")
+        conteudo = eventos_para_ics(self.church, eventos)
+        response = HttpResponse(conteudo, content_type="text/calendar; charset=utf-8")
+        response["Content-Disposition"] = f'inline; filename="{self.church.slug}-eventos.ics"'
+        return response
+
+
+class EventSingleCalendarView(PublicChurchMixin, View):
+    """Mesma ideia, mas só o UM evento — pro botão "Adicionar ao
+    calendário" na própria página do evento."""
+
+    def get(self, request, church_slug, slug):
+        evento = get_object_or_404(Event, slug=slug)
+        conteudo = eventos_para_ics(self.church, [evento])
+        response = HttpResponse(conteudo, content_type="text/calendar; charset=utf-8")
+        response["Content-Disposition"] = f'inline; filename="{evento.slug}.ics"'
+        return response
 
 
 class EventRegistrationView(PublicChurchMixin, RateLimitMixin, View):
@@ -242,6 +275,80 @@ class MercadoPagoWebhookView(View):
                 amount_paid=payment.get("transaction_amount", 0),
             )
         return HttpResponse(status=200)
+
+
+class PagBankCheckoutStartView(PublicChurchMixin, View):
+    """Segundo gateway pra inscrição de evento pago — mesmo padrão de
+    `MercadoPagoCheckoutStartView`, só aparece como opção quando
+    `Church.pagbank_configured`; os dois gateways podem estar
+    configurados ao mesmo tempo."""
+
+    def get(self, request, church_slug, slug, pk):
+        registration = get_object_or_404(Registration, pk=pk, event__slug=slug)
+        if not self.church.pagbank_configured:
+            messages.error(request, "Pagamento via PagBank não está configurado.")
+            return redirect("events_public:register_payment", church_slug=self.church.slug, slug=slug, pk=pk)
+
+        base_url = request.build_absolute_uri("/")[:-1]
+        notification_url = base_url + reverse("events:pagbank_webhook") + f"?church_id={self.church.pk}"
+        try:
+            order_id, qr_image_url, qr_copia_cola = pagbank.criar_pedido(
+                token=self.church.pagbank_token, registration=registration, notification_url=notification_url,
+            )
+        except Exception:
+            logger.exception("Falha ao criar pedido no PagBank para a inscrição %s", pk)
+            messages.error(request, "Não foi possível iniciar o pagamento pelo PagBank agora. Tente o PIX abaixo.")
+            return redirect("events_public:register_payment", church_slug=self.church.slug, slug=slug, pk=pk)
+
+        registration.payment_reference = order_id
+        registration.save(update_fields=["payment_reference"])
+        return render(request, "events/registration_pagbank_pay.html", {
+            "registration": registration, "qr_image_url": qr_image_url, "qr_copia_cola": qr_copia_cola,
+        })
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class PagBankRegistrationWebhookView(View):
+    """Mesmo padrão de `MercadoPagoWebhookView` — igreja vem do
+    `?church_id=`, nunca confia no corpo do POST, sempre reconsulta."""
+
+    def post(self, request):
+        church_id = request.GET.get("church_id")
+        order_id = request.GET.get("id") or self._order_id_from_body(request)
+        if not order_id or not church_id:
+            return HttpResponseBadRequest("missing order id or church_id")
+
+        church = get_object_or_404(Church, pk=church_id)
+        if not church.pagbank_configured:
+            return HttpResponseBadRequest("pagbank not configured")
+
+        try:
+            pedido = pagbank.consultar_pedido(token=church.pagbank_token, order_id=order_id)
+        except Exception:
+            logger.exception("Falha ao reconsultar pedido %s no PagBank", order_id)
+            return HttpResponse(status=502)
+
+        if pagbank.pedido_esta_pago(pedido):
+            registration = Registration.todas_as_igrejas.filter(
+                payment_reference=order_id, church=church
+            ).select_related("event").first()
+            if registration:
+                registration.payment_status = Registration.PaymentStatus.PAID
+                registration.amount_paid = registration.event.price
+                registration.save(update_fields=["payment_status", "amount_paid"])
+        return HttpResponse(status=200)
+
+    @staticmethod
+    def _order_id_from_body(request):
+        """Nota de honestidade: não confirmado ao vivo se o PagBank manda
+        o id do pedido por querystring ou no corpo — tenta os dois,
+        nunca deixa um corpo que não seja JSON derrubar a request."""
+        if not request.body:
+            return None
+        try:
+            return json.loads(request.body).get("id")
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+            return None
 
 
 class RegistrationDoneView(PublicChurchMixin, DetailView):

@@ -255,6 +255,15 @@ SMS_API_SECRET = os.getenv("SMS_API_SECRET", "")
 EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL", "")
 EVOLUTION_API_KEY = os.getenv("EVOLUTION_API_KEY", "")
 
+# Webhook oficial da Meta (WhatsApp Cloud API) — UM app Meta, compartilhado
+# por TODAS as igrejas (diferente de `Church.whatsapp_meta_access_token`,
+# que é por igreja e serve só pra ENVIAR). `META_APP_SECRET` assina o
+# corpo de cada POST (X-Hub-Signature-256); `META_WEBHOOK_VERIFY_TOKEN` é
+# conferido só uma vez, no handshake de configuração no painel da Meta.
+# Ver `notifications.MetaWhatsAppWebhookView`.
+META_APP_SECRET = os.getenv("META_APP_SECRET", "")
+META_WEBHOOK_VERIFY_TOKEN = os.getenv("META_WEBHOOK_VERIFY_TOKEN", "")
+
 
 # Mercado Pago da PLATAFORMA (Fase 4 — cobrança automática de assinatura,
 # `core/mercadopago_billing.py`) — conta do DONO do sistema, diferente da

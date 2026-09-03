@@ -1,7 +1,10 @@
+import hashlib
+import hmac
 import json
 import logging
 from datetime import timedelta
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import F
@@ -63,6 +66,8 @@ class ScheduledMessageCreateView(CanManagePeopleMixin, View):
             person=form.cleaned_data.get("person"),
             phone=normalize_phone(form.cleaned_data["phone"]),
             message=form.cleaned_data["message"],
+            meta_template=form.cleaned_data.get("meta_template"),
+            meta_template_values=form.cleaned_data.get("meta_template_values_resolvidos", []),
             scheduled_for=form.cleaned_data.get("scheduled_for"),
             campaign_label="Mensagem avulsa",
             created_by=request.user,
@@ -469,20 +474,26 @@ class WhatsAppMetaTemplateSubmitView(IsChurchManagerMixin, View):
         return redirect("notifications:whatsapp_meta_templates")
 
 
-class WhatsAppMetaTemplateRefreshStatusView(IsChurchManagerMixin, View):
-    """Consulta o status real na Meta — nunca automático (não há webhook
-    de status configurado), sempre por clique explícito. Mesmo princípio
-    de "nunca confiar em cache, sempre reconsultar" de
-    `RecurringPledgeMercadoPagoWebhookView._processar_preapproval`."""
+# Compartilhado entre a consulta manual (`WhatsAppMetaTemplateRefreshStatusView`,
+# botão "Atualizar status") e o webhook oficial assinado da Meta
+# (`MetaWhatsAppWebhookView`, evento `message_template_status_update`) —
+# os dois recebem o mesmo vocabulário de status da Meta, um por clique
+# explícito, o outro automático.
+META_TEMPLATE_STATUS_MAP = {
+    "APPROVED": WhatsAppMetaTemplate.Status.APPROVED,
+    "REJECTED": WhatsAppMetaTemplate.Status.REJECTED,
+    "PENDING": WhatsAppMetaTemplate.Status.PENDING,
+    "IN_REVIEW": WhatsAppMetaTemplate.Status.PENDING,
+    "PAUSED": WhatsAppMetaTemplate.Status.DISABLED,
+    "DISABLED": WhatsAppMetaTemplate.Status.DISABLED,
+}
 
-    _STATUS_MAP = {
-        "APPROVED": WhatsAppMetaTemplate.Status.APPROVED,
-        "REJECTED": WhatsAppMetaTemplate.Status.REJECTED,
-        "PENDING": WhatsAppMetaTemplate.Status.PENDING,
-        "IN_REVIEW": WhatsAppMetaTemplate.Status.PENDING,
-        "PAUSED": WhatsAppMetaTemplate.Status.DISABLED,
-        "DISABLED": WhatsAppMetaTemplate.Status.DISABLED,
-    }
+
+class WhatsAppMetaTemplateRefreshStatusView(IsChurchManagerMixin, View):
+    """Consulta o status real na Meta — sempre por clique explícito (o
+    webhook oficial, `MetaWhatsAppWebhookView`, cobre a atualização
+    automática). Mesmo princípio de "nunca confiar em cache, sempre
+    reconsultar" de `RecurringPledgeMercadoPagoWebhookView._processar_preapproval`."""
 
     def post(self, request, pk):
         template = get_object_or_404(WhatsAppMetaTemplate, pk=pk)
@@ -500,7 +511,7 @@ class WhatsAppMetaTemplateRefreshStatusView(IsChurchManagerMixin, View):
             messages.error(request, "Não deu pra consultar o status agora — tente de novo em instantes.")
             return redirect("notifications:whatsapp_meta_templates")
 
-        novo_status = self._STATUS_MAP.get(data.get("status", ""), template.status)
+        novo_status = META_TEMPLATE_STATUS_MAP.get(data.get("status", ""), template.status)
         template.status = novo_status
         template.rejection_reason = data.get("rejected_reason", "") or ""
         template.status_checked_at = timezone.now()
@@ -608,6 +619,117 @@ class WhatsAppWebhookView(View):
         else:
             updated.update(delivery_status=delivery_status)
         return HttpResponse(status=200)
+
+
+# Vocabulário de status de MENSAGEM da própria Meta ("sent" é ignorado —
+# a mensagem já vira SENT localmente no momento do envio; esse status de
+# entrega é só delivered/read/failed, mesmo conjunto que o `DeliveryStatus`
+# já cobre pro canal Evolution).
+_META_DELIVERY_STATUS_MAP = {
+    "delivered": WhatsAppMessage.DeliveryStatus.DELIVERED,
+    "read": WhatsAppMessage.DeliveryStatus.READ,
+    "failed": WhatsAppMessage.DeliveryStatus.FAILED,
+}
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class MetaWhatsAppWebhookView(View):
+    """Webhook OFICIAL da Meta (WhatsApp Cloud API) — modelo TOTALMENTE
+    diferente do `WhatsAppWebhookView` (Evolution) acima: aqui é **um
+    único registro**, no painel de desenvolvedor da Meta, compartilhado
+    por TODAS as igrejas (não um segredo por igreja) — a Meta identifica
+    de qual igreja é o evento pelo `phone_number_id` (mensagem) ou pelo
+    `message_template_id` (template) que vêm DENTRO do payload, e a
+    autenticidade é conferida por assinatura HMAC-SHA256
+    (`X-Hub-Signature-256`, com `settings.META_APP_SECRET`) — bem mais
+    forte que o cabeçalho de segredo simples da Evolution.
+
+    Cobre os dois eventos que interessam aqui: confirmação de entrega/
+    leitura de MENSAGEM (`field == "messages"`, mesmos campos que
+    `WhatsAppWebhookView` já atualiza) e mudança de status de TEMPLATE
+    (`field == "message_template_status_update"`, mesmos campos que
+    `WhatsAppMetaTemplateRefreshStatusView` já atualiza manualmente —
+    aqui acontece sozinho, sem precisar clicar em nada).
+
+    Nota de honestidade: formato do payload implementado a partir da
+    documentação pública da Meta — não confirmado ao vivo (não existe
+    conta Meta Business real neste ambiente), mesma ressalva já dada pro
+    resto da integração Meta neste projeto."""
+
+    def get(self, request):
+        # Handshake de configuração do webhook no painel da Meta — feito
+        # UMA vez, não por igreja.
+        if (
+            request.GET.get("hub.mode") == "subscribe"
+            and request.GET.get("hub.verify_token") == settings.META_WEBHOOK_VERIFY_TOKEN
+            and settings.META_WEBHOOK_VERIFY_TOKEN
+        ):
+            return HttpResponse(request.GET.get("hub.challenge", ""))
+        return HttpResponseForbidden("invalid verify token")
+
+    def post(self, request):
+        if not settings.META_APP_SECRET:
+            return HttpResponseForbidden("webhook not configured")
+        assinatura = request.headers.get("X-Hub-Signature-256", "")
+        esperada = "sha256=" + hmac.new(
+            settings.META_APP_SECRET.encode(), request.body, hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(assinatura, esperada):
+            return HttpResponseForbidden("invalid signature")
+
+        try:
+            payload = json.loads(request.body)
+        except Exception:
+            return HttpResponse(status=400)
+
+        try:
+            for entry in payload.get("entry", []):
+                for change in entry.get("changes", []):
+                    campo = change.get("field", "")
+                    valor = change.get("value", {})
+                    if campo == "messages":
+                        self._processar_status_mensagem(valor)
+                    elif campo == "message_template_status_update":
+                        self._processar_status_template(valor)
+        except Exception:
+            # Endpoint público na internet — nunca deixa vazar exceção
+            # (a Meta reenvia/desativa o webhook se ele começar a 5xx).
+            logger.exception("Falha ao processar webhook da Meta")
+        return HttpResponse(status=200)
+
+    @staticmethod
+    def _processar_status_mensagem(valor):
+        phone_number_id = valor.get("metadata", {}).get("phone_number_id", "")
+        config = Church.objects.filter(whatsapp_meta_phone_number_id=phone_number_id).first() if phone_number_id else None
+        if config is None:
+            return
+        for status_evento in valor.get("statuses", []):
+            message_id = status_evento.get("id", "")
+            delivery_status = _META_DELIVERY_STATUS_MAP.get(status_evento.get("status", ""))
+            if not message_id or delivery_status is None:
+                continue
+            updated = WhatsAppMessage.todas_as_igrejas.filter(external_id=message_id, church=config)
+            now = timezone.now()
+            if delivery_status == WhatsAppMessage.DeliveryStatus.DELIVERED:
+                updated.update(delivery_status=delivery_status, delivered_at=now)
+            elif delivery_status == WhatsAppMessage.DeliveryStatus.READ:
+                updated.update(delivery_status=delivery_status, read_at=now)
+            else:
+                updated.update(delivery_status=delivery_status)
+
+    @staticmethod
+    def _processar_status_template(valor):
+        meta_template_id = str(valor.get("message_template_id", ""))
+        if not meta_template_id:
+            return
+        template = WhatsAppMetaTemplate.todas_as_igrejas.filter(meta_template_id=meta_template_id).first()
+        if template is None:
+            return
+        novo_status = META_TEMPLATE_STATUS_MAP.get(valor.get("event", ""), template.status)
+        template.status = novo_status
+        template.rejection_reason = valor.get("reason", "") or template.rejection_reason
+        template.status_checked_at = timezone.now()
+        template.save(update_fields=["status", "rejection_reason", "status_checked_at"])
 
 
 class EmailQueueListView(CanManagePeopleMixin, ListView):

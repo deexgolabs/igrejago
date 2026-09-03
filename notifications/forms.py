@@ -125,7 +125,18 @@ class ScheduledMessageForm(forms.Form):
         label="Ou telefone direto", max_length=20, required=False,
         help_text="Preencha se a mensagem não é para alguém já cadastrado.",
     )
-    message = forms.CharField(label="Mensagem", widget=forms.Textarea(attrs={"rows": 4}))
+    message = forms.CharField(label="Mensagem", widget=forms.Textarea(attrs={"rows": 4}), required=False)
+    meta_template = forms.ModelChoiceField(
+        label="Ou usar template aprovado da Meta (opcional)",
+        queryset=WhatsAppMetaTemplate.objects.none(), required=False,
+        help_text="Só templates já aprovados pela Meta aparecem aqui — necessário pra mandar fora da "
+                   "janela de 24h de conversa pelo canal oficial da Meta.",
+    )
+    meta_template_values = forms.CharField(
+        label="Valores das variáveis do template (um por linha, na ordem {{1}}, {{2}}...)",
+        widget=forms.Textarea(attrs={"rows": 3}), required=False,
+        help_text="Pode usar {nome} — vira o nome da pessoa escolhida acima.",
+    )
     scheduled_for = forms.DateTimeField(
         label="Agendar para (opcional) — horário de Brasília", required=False, widget=DATETIME_INPUT,
         input_formats=["%Y-%m-%dT%H:%M"],
@@ -148,6 +159,9 @@ class ScheduledMessageForm(forms.Form):
         if user is not None and not user.is_unrestricted_manager:
             people_qs = people_qs.filter(department__in=user.led_departments)
         self.fields["person"].queryset = people_qs
+        self.fields["meta_template"].queryset = WhatsAppMetaTemplate.objects.filter(
+            status=WhatsAppMetaTemplate.Status.APPROVED
+        )
 
     def clean(self):
         cleaned = super().clean()
@@ -158,6 +172,29 @@ class ScheduledMessageForm(forms.Form):
         cleaned["phone"] = phone or (person.phone if person else "")
         if not cleaned["phone"]:
             raise forms.ValidationError("A pessoa escolhida não tem telefone cadastrado — informe um telefone direto.")
+
+        meta_template = cleaned.get("meta_template")
+        message = (cleaned.get("message") or "").strip()
+        if meta_template:
+            linhas = [
+                linha.strip() for linha in (cleaned.get("meta_template_values") or "").splitlines() if linha.strip()
+            ]
+            esperado = meta_template.contar_variaveis()
+            if len(linhas) != esperado:
+                raise forms.ValidationError(
+                    f"Esse template usa {esperado} variável(is) — informe exatamente {esperado} "
+                    f"valor(es), um por linha (você informou {len(linhas)})."
+                )
+            nome = person.full_name if person else ""
+            valores = [linha.format(nome=nome) for linha in linhas]
+            cleaned["meta_template_values_resolvidos"] = valores
+            # Mensagem sempre fica com o texto renderizado e legível — serve de
+            # fallback pro canal Evolution, e-mail e log, mesmo enviando via template.
+            cleaned["message"] = meta_template.renderizar_preview(valores)
+        elif not message:
+            raise forms.ValidationError("Escreva uma mensagem ou escolha um template aprovado da Meta.")
+        else:
+            cleaned["message"] = message
         return cleaned
 
 

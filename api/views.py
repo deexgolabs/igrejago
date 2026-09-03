@@ -11,11 +11,16 @@ import json
 from django.forms.models import model_to_dict
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from django.views.generic import View
 
 from api.auth import ApiKeyRateLimitMixin, ApiKeyRequiredMixin, paginate
 from core.billing import pode_adicionar_pessoa
+from core.models import WebhookSubscription
+from core.webhooks import disparar_webhook
+from events.forms import PublicRegistrationForm
 from events.models import Event, Registration
+from finance.forms import TransactionForm
 from finance.models import Transaction
 from people.forms import PersonForm
 from people.models import Person
@@ -113,9 +118,12 @@ class PersonDetailAPIView(ApiKeyRequiredMixin, ApiKeyRateLimitMixin, View):
 
 
 class TransactionListAPIView(BaseApiView):
-    """Só entradas (doações/dízimo/oferta) — não expõe despesas/saída
-    pela API por padrão (informação financeira mais sensível, sem um
-    caso de uso claro pra terceiro ler via integração)."""
+    """`GET` só lista entradas (doações/dízimo/oferta) — mesmo escopo de
+    sempre, informação financeira mais sensível. `POST` aceita
+    entrada OU saída (o próprio `TransactionForm` já valida tudo,
+    inclusive a regra de partida dobrada — mesmo nível de confiança já
+    dado à chave de API pra escrever Pessoa; quem vaza a chave já tem
+    acesso aos dados da igreja de qualquer forma)."""
 
     def get_queryset(self):
         return Transaction.objects.filter(type=Transaction.Type.INCOME).order_by("-date", "-id")
@@ -123,10 +131,24 @@ class TransactionListAPIView(BaseApiView):
     @staticmethod
     def serialize(transaction):
         return {
-            "id": transaction.pk, "category": transaction.category, "amount": str(transaction.amount),
-            "date": transaction.date.isoformat(),
+            "id": transaction.pk, "type": transaction.type, "category": transaction.category,
+            "amount": str(transaction.amount), "date": transaction.date.isoformat(),
             "person_name": transaction.person.full_name if transaction.person_id else None,
         }
+
+    def post(self, request):
+        payload = _parse_json_body(request)
+        if payload is None:
+            return JsonResponse({"detail": "Corpo precisa ser um objeto JSON válido."}, status=400)
+
+        form = TransactionForm(data=payload)
+        if not form.is_valid():
+            return JsonResponse({"detail": "Dados inválidos.", "errors": _form_errors(form)}, status=400)
+
+        transaction = form.save(commit=False)
+        transaction.church = request.church
+        transaction.save()
+        return JsonResponse(self.serialize(transaction), status=201)
 
 
 class EventListAPIView(BaseApiView):
@@ -143,6 +165,12 @@ class EventListAPIView(BaseApiView):
 
 
 class RegistrationListAPIView(BaseApiView):
+    """`GET` lista (como antes). `POST` reaproveita `PublicRegistrationForm`
+    (o MESMO form da inscrição pública) e replica os efeitos colaterais
+    de `EventRegistrationView.post` (lista de espera se lotado, status
+    de pagamento derivado, webhook de saída) — pra uma inscrição via API
+    se comportar exatamente como uma inscrição humana."""
+
     def get_queryset(self):
         return Registration.objects.select_related("event").order_by("-id")
 
@@ -152,3 +180,35 @@ class RegistrationListAPIView(BaseApiView):
             "id": registration.pk, "event": registration.event.title, "full_name": registration.full_name,
             "payment_status": registration.payment_status, "on_waitlist": registration.on_waitlist,
         }
+
+    def post(self, request):
+        payload = _parse_json_body(request)
+        if payload is None:
+            return JsonResponse({"detail": "Corpo precisa ser um objeto JSON válido."}, status=400)
+
+        event = Event.objects.filter(pk=payload.get("event_id")).first()
+        if event is None:
+            return JsonResponse({"detail": "event_id inválido ou não pertence à sua igreja."}, status=400)
+
+        # Mesmo campo que o form público exige — quem chama a API confirma
+        # que já obteve o consentimento (LGPD) de quem está se inscrevendo,
+        # não é a plataforma quem coleta isso por trás de uma integração.
+        form = PublicRegistrationForm(data={**payload, "privacy_consent": payload.get("consent")})
+        if not form.is_valid():
+            return JsonResponse({"detail": "Dados inválidos.", "errors": _form_errors(form)}, status=400)
+
+        registration = form.save(commit=False)
+        registration.event = event
+        registration.church = event.church
+        registration.privacy_consent_at = timezone.now()
+        registration.on_waitlist = event.is_full
+        registration.payment_status = (
+            Registration.PaymentStatus.PENDING if event.is_paid else Registration.PaymentStatus.FREE
+        )
+        registration.save()
+
+        disparar_webhook(event.church, WebhookSubscription.EventType.EVENT_REGISTRATION_CREATED, {
+            "id": registration.pk, "event": event.title, "full_name": registration.full_name,
+            "on_waitlist": registration.on_waitlist,
+        })
+        return JsonResponse(self.serialize(registration), status=201)

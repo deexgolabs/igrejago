@@ -220,6 +220,48 @@ a tela de conexão mostra a resposta crua da API na mensagem de aviso pra
 você ajustar `core/whatsapp.py`/`notifications/views.py::WhatsAppWebhookView`
 se precisar.
 
+### 5.2.1. Webhook oficial da Meta (WhatsApp Cloud API)
+
+Modelo BEM diferente do webhook da Evolution acima: aqui é **um único
+registro**, feito uma vez no
+[painel de desenvolvedor da Meta](https://developers.facebook.com/apps/)
+(app do WhatsApp → Configuration → Webhooks), **compartilhado por
+TODAS as igrejas** — não um segredo por igreja. Preencha no `.env` da
+plataforma:
+
+```
+META_APP_SECRET=o-app-secret-do-seu-app-na-meta
+META_WEBHOOK_VERIFY_TOKEN=qualquer-string-que-voce-escolher
+```
+
+No painel da Meta, configure a URL de callback:
+
+```
+https://seudominio.com/mensagens/webhook/meta/
+```
+
+usando o MESMO valor de `META_WEBHOOK_VERIFY_TOKEN` no campo "Verify
+Token" — a Meta faz uma chamada `GET` de verificação na hora de salvar
+(handshake `hub.challenge`), e todo `POST` depois disso vem assinado
+com `X-Hub-Signature-256` (HMAC-SHA256 usando `META_APP_SECRET`) —
+conferido de verdade a cada chamada, mais forte que o segredo simples
+da Evolution. Assine os campos (webhook fields) `messages` (confirmação
+de entrega/leitura) e `message_template_status_update` (aprovação/
+rejeição de template automática, sem precisar clicar em "Atualizar
+status" manualmente).
+
+Como um app Meta serve várias igrejas, o evento é roteado por dado que
+já vem DENTRO do payload — `phone_number_id` (mensagem, casado contra
+`Church.whatsapp_meta_phone_number_id`) ou `message_template_id`
+(template, casado contra `WhatsAppMetaTemplate.meta_template_id`) —
+nunca por URL nem cabeçalho por igreja.
+
+**Nota de honestidade**: implementado a partir da documentação pública
+da Meta — não existe conta Meta Business real neste ambiente pra testar
+ao vivo, mesma ressalva já dada pro resto da integração Meta (envio,
+templates). Se o formato real vier diferente, ajuste
+`notifications/views.py::MetaWhatsAppWebhookView`.
+
 ### 5.3. Cobrança automática de assinatura (Fase 4)
 
 Diferente do Mercado Pago de CADA igreja (`Church.mercadopago_access_token`,
@@ -286,6 +328,33 @@ verificado ao vivo.
   cedo ou tarde, independente de código — configure isso no provedor
   SMTP que você usa (Gmail Workspace, SES, SendGrid etc.), fora do
   escopo deste projeto (exige acesso ao DNS do domínio da igreja).
+
+## 6.1. App com a marca da própria igreja (PWA + terreno pra Play Store)
+
+O sistema já é instalável como PWA (Progressive Web App) com o nome/
+ícone/cor DA IGREJA — quem tem `Church.logo` cadastrado em
+Configurações vê, ao clicar em "Instalar app"/"Adicionar à tela
+inicial" no navegador (Chrome/Safari/Edge), o ícone virar o logo real
+da igreja, não um ícone genérico do sistema. Nada a configurar no
+servidor — funciona automaticamente a partir do que a igreja já
+preencheu.
+
+**Publicar de verdade na Google Play Store é OPCIONAL e manual**,
+via TWA (Trusted Web Activity — um Android nativo que só abre o PWA em
+tela cheia, sem barra de navegador):
+
+1. Instale a [Bubblewrap CLI](https://github.com/GoogleChromeLabs/bubblewrap) do Google (gratuita): `npm i -g @bubblewrap/cli`
+2. `bubblewrap init --manifest https://seudominio.com/manifest.json` (rode isso já logado como a igreja, pro manifest vir com o ícone/nome certos)
+3. `bubblewrap build` gera o `.aab`/`.apk` assinado — anote o SHA256 do certificado gerado (`bubblewrap` mostra no final, ou `keytool -list -v -keystore android.keystore`)
+4. Preencha `Church.android_package_name` (ex.: `br.com.igrejago.nomedaigreja`) e `Church.android_sha256_fingerprint` (o SHA256 do passo 3) no Django admin dessa igreja — isso faz `/.well-known/assetlinks.json` validar o app automaticamente (sem isso, o Android mostra o app com a barra de endereço, não em tela cheia)
+5. Suba o `.aab` no [Google Play Console](https://play.google.com/console/) — exige uma conta de desenvolvedor Google (taxa única de US$25)
+
+**Decisão de negócio em aberto, não resolvida aqui**: cada igreja
+publica sob a PRÓPRIA conta de desenvolvedor Google (paga a taxa ela
+mesma, aparece como "desenvolvedora" do próprio app), ou a plataforma
+publica em nome de todas sob uma conta só (a plataforma paga uma vez,
+controla a publicação de todo mundo)? Os dois são possíveis com o
+terreno já preparado aqui — só decida antes de publicar a primeira.
 
 ## 7. Depois de qualquer deploy novo
 

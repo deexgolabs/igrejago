@@ -63,6 +63,37 @@ class TestScheduledMessageCreate:
         response = member_client.get("/mensagens/nova/")
         assert response.status_code == 403
 
+    def test_sends_via_approved_meta_template(self, pastor_client, church, person):
+        template = WhatsAppMetaTemplate.objects.create(
+            church=church, name="aviso", body_text="Olá {{1}}! Sua escala é {{2}}.",
+            status=WhatsAppMetaTemplate.Status.APPROVED,
+        )
+        response = pastor_client.post("/mensagens/nova/", {
+            "person": person.pk, "meta_template": template.pk,
+            "meta_template_values": "{nome}\nsábado às 19h",
+        })
+        assert response.status_code == 302
+        msg = WhatsAppMessage.objects.get()
+        assert msg.meta_template_id == template.pk
+        assert msg.meta_template_values == [person.full_name, "sábado às 19h"]
+        assert msg.message == f"Olá {person.full_name}! Sua escala é sábado às 19h."
+
+    def test_meta_template_wrong_value_count_shows_error(self, pastor_client, church, person):
+        template = WhatsAppMetaTemplate.objects.create(
+            church=church, name="aviso", body_text="Olá {{1}}! Sua escala é {{2}}.",
+            status=WhatsAppMetaTemplate.Status.APPROVED,
+        )
+        response = pastor_client.post("/mensagens/nova/", {
+            "person": person.pk, "meta_template": template.pk, "meta_template_values": "só um valor",
+        })
+        assert response.status_code == 200
+        assert not WhatsAppMessage.objects.exists()
+
+    def test_without_message_or_template_shows_error(self, pastor_client, person):
+        response = pastor_client.post("/mensagens/nova/", {"person": person.pk})
+        assert response.status_code == 200
+        assert not WhatsAppMessage.objects.exists()
+
 
 @pytest.mark.django_db
 class TestMessageQueueListAndCancel:
@@ -356,6 +387,27 @@ class TestMessageTemplateCRUD:
         assert response.status_code == 302
         assert not MessageTemplate.objects.filter(pk=tpl.pk).exists()
 
+    def test_campaign_with_meta_template_resolves_name_per_person(self, pastor_client, church, person):
+        template = WhatsAppMetaTemplate.objects.create(
+            church=church, name="aviso_campanha", body_text="Olá {{1}}!",
+            status=WhatsAppMetaTemplate.Status.APPROVED,
+        )
+        person.phone = "62999990000"
+        person.save()
+        response = pastor_client.post("/pessoas/campanha/", {
+            "meta_template": template.pk, "meta_template_values": "{nome}",
+        })
+        assert response.status_code == 302
+        msg = WhatsAppMessage.objects.get()
+        assert msg.meta_template_id == template.pk
+        assert msg.meta_template_values == [person.full_name]
+        assert msg.message == f"Olá {person.full_name}!"
+
+    def test_campaign_without_message_or_template_shows_error(self, pastor_client, church):
+        response = pastor_client.post("/pessoas/campanha/", {"campaign_label": "x"})
+        assert response.status_code == 200
+        assert not WhatsAppMessage.objects.exists()
+
     def test_template_appears_as_picker_option_on_campaign_form(self, pastor_client, church):
         MessageTemplate.objects.create(church=church, name="Aviso geral", body="Atenção {nome}!")
         response = pastor_client.get("/pessoas/campanha/")
@@ -523,6 +575,115 @@ class TestWhatsAppWebhook:
         msg.refresh_from_db()
         assert msg.delivery_status == WhatsAppMessage.DeliveryStatus.DELIVERED
         assert msg.delivered_at is not None
+
+
+@pytest.mark.django_db
+class TestMetaWhatsAppWebhook:
+    """Webhook oficial da Meta — UM app compartilhado por todas as
+    igrejas (não segredo por igreja), assinatura HMAC de verdade."""
+
+    @staticmethod
+    def _assinar(body_bytes, secret):
+        import hashlib
+        import hmac as hmac_module
+
+        return "sha256=" + hmac_module.new(secret.encode(), body_bytes, hashlib.sha256).hexdigest()
+
+    def test_handshake_returns_challenge_with_correct_token(self, client, settings):
+        settings.META_WEBHOOK_VERIFY_TOKEN = "meu-token"
+        response = client.get(
+            "/mensagens/webhook/meta/",
+            {"hub.mode": "subscribe", "hub.verify_token": "meu-token", "hub.challenge": "abc123"},
+        )
+        assert response.status_code == 200
+        assert response.content == b"abc123"
+
+    def test_handshake_rejects_wrong_token(self, client, settings):
+        settings.META_WEBHOOK_VERIFY_TOKEN = "meu-token"
+        response = client.get(
+            "/mensagens/webhook/meta/",
+            {"hub.mode": "subscribe", "hub.verify_token": "errado", "hub.challenge": "abc123"},
+        )
+        assert response.status_code == 403
+
+    def test_post_rejects_without_app_secret_configured(self, client, settings):
+        settings.META_APP_SECRET = ""
+        response = client.post("/mensagens/webhook/meta/", data="{}", content_type="application/json")
+        assert response.status_code == 403
+
+    def test_post_rejects_invalid_signature(self, client, settings):
+        settings.META_APP_SECRET = "app-secret"
+        response = client.post(
+            "/mensagens/webhook/meta/", data="{}", content_type="application/json",
+            HTTP_X_HUB_SIGNATURE_256="sha256=assinatura-errada",
+        )
+        assert response.status_code == 403
+
+    def test_updates_message_delivery_status_via_phone_number_id(self, client, settings, church_config):
+        settings.META_APP_SECRET = "app-secret"
+        church_config.whatsapp_meta_phone_number_id = "meta-phone-123"
+        church_config.save()
+        msg = WhatsAppMessage.objects.create(
+            church=church_config, phone="5562911110001", message="Oi", status="SENT", external_id="wamid.ABC",
+        )
+        payload = {
+            "entry": [{"changes": [{
+                "field": "messages",
+                "value": {
+                    "metadata": {"phone_number_id": "meta-phone-123"},
+                    "statuses": [{"id": "wamid.ABC", "status": "delivered"}],
+                },
+            }]}]
+        }
+        body = json.dumps(payload).encode()
+        response = client.post(
+            "/mensagens/webhook/meta/", data=body, content_type="application/json",
+            HTTP_X_HUB_SIGNATURE_256=self._assinar(body, "app-secret"),
+        )
+        assert response.status_code == 200
+        msg.refresh_from_db()
+        assert msg.delivery_status == WhatsAppMessage.DeliveryStatus.DELIVERED
+        assert msg.delivered_at is not None
+
+    def test_updates_template_status_via_meta_template_id(self, client, settings, church_config):
+        settings.META_APP_SECRET = "app-secret"
+        template = WhatsAppMetaTemplate.objects.create(
+            church=church_config, name="aviso", body_text="x",
+            status=WhatsAppMetaTemplate.Status.PENDING, meta_template_id="meta-tpl-999",
+        )
+        payload = {
+            "entry": [{"changes": [{
+                "field": "message_template_status_update",
+                "value": {
+                    "message_template_id": "meta-tpl-999", "event": "REJECTED",
+                    "reason": "Conteúdo promocional demais",
+                },
+            }]}]
+        }
+        body = json.dumps(payload).encode()
+        response = client.post(
+            "/mensagens/webhook/meta/", data=body, content_type="application/json",
+            HTTP_X_HUB_SIGNATURE_256=self._assinar(body, "app-secret"),
+        )
+        assert response.status_code == 200
+        template.refresh_from_db()
+        assert template.status == WhatsAppMetaTemplate.Status.REJECTED
+        assert template.rejection_reason == "Conteúdo promocional demais"
+
+    def test_unknown_phone_number_id_is_ignored_without_error(self, client, settings):
+        settings.META_APP_SECRET = "app-secret"
+        payload = {
+            "entry": [{"changes": [{
+                "field": "messages",
+                "value": {"metadata": {"phone_number_id": "nao-existe"}, "statuses": [{"id": "x", "status": "read"}]},
+            }]}]
+        }
+        body = json.dumps(payload).encode()
+        response = client.post(
+            "/mensagens/webhook/meta/", data=body, content_type="application/json",
+            HTTP_X_HUB_SIGNATURE_256=self._assinar(body, "app-secret"),
+        )
+        assert response.status_code == 200
 
 
 @pytest.mark.django_db

@@ -26,6 +26,27 @@
     </div>
 </div>
 
+{% if arrecadado_mes is not None or confirmacao_escala is not None %}
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+    {% if arrecadado_mes is not None %}
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <p class="text-sm text-slate-500">Arrecadado este mês</p>
+        <p class="text-3xl font-bold text-brand-700">R$ {{ arrecadado_mes }}</p>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <p class="text-sm text-slate-500">Ticket médio de doação</p>
+        <p class="text-3xl font-bold text-brand-700">R$ {{ ticket_medio_doacao }}</p>
+    </div>
+    {% endif %}
+    {% if confirmacao_escala is not None %}
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <p class="text-sm text-slate-500">Confirmação de escala (futuras)</p>
+        <p class="text-3xl font-bold text-brand-700">{{ confirmacao_escala }}%</p>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
     <div class="bg-white rounded-xl border border-slate-200 p-5">
         <h2 class="text-sm font-semibold text-slate-700 mb-3">Membros por cargo</h2>
@@ -85,10 +106,23 @@
     </div>
 </div>
 
+{% if financeiro_chart %}
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">Financeiro — 6 meses (receita × despesa)</h2>
+        <canvas id="financeiroChart" height="140"></canvas>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">Funil de acompanhamento de visitantes</h2>
+        <canvas id="funnelChart" height="140"></canvas>
+    </div>
+</div>
+{% else %}
 <div class="bg-white rounded-xl border border-slate-200 p-5">
     <h2 class="text-sm font-semibold text-slate-700 mb-3">Funil de acompanhamento de visitantes</h2>
     <canvas id="funnelChart" height="110"></canvas>
 </div>
+{% endif %}
 
 <script>
     // Todos os gráficos usam só a cor de marca da igreja (`paleta_marca`),
@@ -134,6 +168,21 @@
             scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } },
         },
     });
+
+    {% if financeiro_chart %}
+    const financeiroData = {{ financeiro_chart|safe }};
+    new Chart(document.getElementById('financeiroChart'), {
+        type: 'bar',
+        data: {
+            labels: financeiroData.labels,
+            datasets: [
+                { label: 'Receita', data: financeiroData.receitas, backgroundColor: '{{ paleta_marca.600 }}', borderRadius: 4 },
+                { label: 'Despesa', data: financeiroData.despesas, backgroundColor: '{{ paleta_marca.300 }}', borderRadius: 4 },
+            ],
+        },
+        options: { scales: { y: { beginAtZero: true } } },
+    });
+    {% endif %}
 
     const funnelData = {{ pipeline_funnel|safe }};
     new Chart(document.getElementById('funnelChart'), {

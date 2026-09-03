@@ -11,7 +11,7 @@ from django.contrib.auth import login as auth_login
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.mail import send_mail
 from django.core.management import call_command
-from django.db.models import Count, F, Q, Sum
+from django.db.models import Avg, Count, F, Q, Sum
 from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
@@ -20,9 +20,16 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView, View
 
-from accounts.mixins import IsChurchManagerMixin, IsPlatformOwnerMixin
+from accounts.mixins import CanManagePeopleMixin, IsChurchManagerMixin, IsPlatformOwnerMixin
 from core.billing import PLANOS
-from core.forms import ChurchConfigForm, ChurchOverrideForm, ChurchSignupForm, ShortLinkForm, WebhookSubscriptionForm
+from core.forms import (
+    ChurchConfigForm,
+    ChurchOverrideForm,
+    ChurchSignupForm,
+    CustomReportForm,
+    ShortLinkForm,
+    WebhookSubscriptionForm,
+)
 from core.mercadopago_billing import consultar_assinatura, criar_assinatura
 from core.models import AuditLog, Church, DataDeletionRequest, ShortLink, WebhookDelivery, WebhookSubscription
 from core.ratelimit import RateLimitMixin
@@ -155,7 +162,64 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             for row in context["members_by_department"]
         ])
         context["pipeline_funnel"] = json.dumps(self._pipeline_funnel())
+        # Financeiro é mais sensível — só pra quem NÃO é um Líder de
+        # Departamento escopado (mesmo corte já usado pra esconder o
+        # próprio módulo Financeiro do menu desse perfil).
+        if self.request.user.is_unrestricted_manager:
+            context.update(self._financeiro_context(today))
+        context["confirmacao_escala"] = self._taxa_confirmacao_escala(today)
         return context
+
+    @staticmethod
+    def _financeiro_context(today):
+        """Total arrecadado no mês + evolução de 6 meses (receita ×
+        despesa) — mesma técnica mês a mês de `_growth_last_6_months`,
+        só que somando `Transaction.amount` em vez de contar `Person`.
+        Puramente agregação nova, nenhum campo/model novo."""
+        from finance.models import Transaction
+
+        month_start = today.replace(day=1)
+        arrecadado_mes = Transaction.objects.filter(
+            type=Transaction.Type.INCOME, date__gte=month_start, date__lte=today,
+        ).aggregate(total=Sum("amount"))["total"] or 0
+
+        ticket_medio_doacao = Transaction.objects.filter(
+            type=Transaction.Type.INCOME,
+            category__in=[Transaction.Category.TITHE, Transaction.Category.OFFERING, Transaction.Category.DONATION],
+        ).aggregate(media=Avg("amount"))["media"] or 0
+
+        labels, receitas, despesas = [], [], []
+        for i in range(5, -1, -1):
+            inicio = month_start - relativedelta(months=i)
+            fim = inicio + relativedelta(months=1)
+            labels.append(inicio.strftime("%b/%Y"))
+            receitas.append(float(
+                Transaction.objects.filter(type=Transaction.Type.INCOME, date__gte=inicio, date__lt=fim)
+                .aggregate(total=Sum("amount"))["total"] or 0
+            ))
+            despesas.append(float(
+                Transaction.objects.filter(type=Transaction.Type.EXPENSE, date__gte=inicio, date__lt=fim)
+                .aggregate(total=Sum("amount"))["total"] or 0
+            ))
+        return {
+            "arrecadado_mes": arrecadado_mes,
+            "ticket_medio_doacao": round(ticket_medio_doacao, 2),
+            "financeiro_chart": json.dumps({"labels": labels, "receitas": receitas, "despesas": despesas}),
+        }
+
+    @staticmethod
+    def _taxa_confirmacao_escala(today):
+        """% de voluntários já CONFIRMADOS entre as escalas de hoje em
+        diante — só conta o que ainda faz sentido cobrar confirmação
+        (escala passada não precisa mais)."""
+        from escalas.models import EscalaVoluntario
+
+        futuras = EscalaVoluntario.objects.filter(escala__date__gte=today)
+        total = futuras.count()
+        if not total:
+            return None
+        confirmados = futuras.filter(status=EscalaVoluntario.Status.CONFIRMED).count()
+        return round(confirmados * 100 / total)
 
     @staticmethod
     def _pipeline_funnel():
@@ -198,6 +262,108 @@ class DashboardView(LoginRequiredMixin, TemplateView):
                 ).count()
             )
         return {"labels": labels, "counts": counts}
+
+
+def _relatorio_pessoas(dados):
+    """Filtra + agrupa `Person` conforme `CustomReportForm.cleaned_data`
+    — função solta (não método) pra ser reaproveitada tanto pela tela
+    (`CustomReportView`) quanto pela exportação (`CustomReportExportView`),
+    sem duplicar a lógica de filtro/agrupamento entre as duas."""
+    qs = Person.objects.all()
+    if dados.get("department"):
+        qs = qs.filter(department=dados["department"])
+    if dados.get("role"):
+        qs = qs.filter(role=dados["role"])
+    if dados.get("tipo") == "membro":
+        qs = qs.filter(is_member=True)
+    elif dados.get("tipo") == "visitante":
+        qs = qs.filter(is_visitor=True)
+    if dados.get("data_inicio"):
+        qs = qs.filter(created_at__date__gte=dados["data_inicio"])
+    if dados.get("data_fim"):
+        qs = qs.filter(created_at__date__lte=dados["data_fim"])
+
+    agrupar_por = dados.get("agrupar_por") or "department"
+    if agrupar_por == "department":
+        rows = qs.values("department__name").annotate(total=Count("id")).order_by("-total")
+        rows = [{"label": r["department__name"] or "Sem departamento", "total": r["total"]} for r in rows]
+    elif agrupar_por == "role":
+        role_labels = dict(Person.Role.choices)
+        rows = qs.values("role").annotate(total=Count("id")).order_by("-total")
+        rows = [{"label": role_labels.get(r["role"], r["role"]) or "Sem cargo", "total": r["total"]} for r in rows]
+    elif agrupar_por == "mes_cadastro":
+        from django.db.models.functions import TruncMonth
+
+        rows = (
+            qs.annotate(mes=TruncMonth("created_at")).values("mes")
+            .annotate(total=Count("id")).order_by("mes")
+        )
+        rows = [{"label": r["mes"].strftime("%b/%Y") if r["mes"] else "—", "total": r["total"]} for r in rows]
+    else:  # faixa_etaria — não dá pra agrupar isso na query (depende de birth_date × hoje), faz em Python
+        faixas = {"0-12": 0, "13-17": 0, "18-25": 0, "26-40": 0, "41-60": 0, "61+": 0, "Sem data de nascimento": 0}
+        for person in qs.only("birth_date"):
+            idade = person.age
+            if idade is None:
+                faixas["Sem data de nascimento"] += 1
+            elif idade <= 12:
+                faixas["0-12"] += 1
+            elif idade <= 17:
+                faixas["13-17"] += 1
+            elif idade <= 25:
+                faixas["18-25"] += 1
+            elif idade <= 40:
+                faixas["26-40"] += 1
+            elif idade <= 60:
+                faixas["41-60"] += 1
+            else:
+                faixas["61+"] += 1
+        rows = [{"label": k, "total": v} for k, v in faixas.items() if v]
+
+    return rows, sum(r["total"] for r in rows)
+
+
+class CustomReportView(CanManagePeopleMixin, View):
+    """Relatório customizável de Pessoas — filtra e agrupa na hora,
+    escopado a Pessoas nesta rodada (caso de uso citado pelo usuário:
+    "pessoas por departamento X período X status"). Mesmo mixin de
+    `PersonListView` — quem já vê a lista de pessoas já pode gerar
+    relatório dela."""
+
+    template_name = "core/custom_report.html"
+
+    def get(self, request):
+        form = CustomReportForm(request.GET or None)
+        context = {"form": form, "rows": None, "total": None, "chart_data": "[]"}
+        if request.GET and form.is_valid():
+            rows, total = _relatorio_pessoas(form.cleaned_data)
+            context.update({"rows": rows, "total": total, "chart_data": json.dumps(rows)})
+        return render(request, self.template_name, context)
+
+
+class CustomReportExportView(CanManagePeopleMixin, View):
+    def get(self, request):
+        from openpyxl import Workbook
+
+        form = CustomReportForm(request.GET or None)
+        rows, total = _relatorio_pessoas(form.cleaned_data) if form.is_valid() else ([], 0)
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Relatório"
+        ws.append(["Grupo", "Total"])
+        for row in rows:
+            ws.append([row["label"], row["total"]])
+        ws.append(["Total geral", total])
+        for column_cells in ws.columns:
+            width = max(len(str(cell.value)) for cell in column_cells) + 2
+            ws.column_dimensions[column_cells[0].column_letter].width = width
+
+        response = HttpResponse(
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        response["Content-Disposition"] = 'attachment; filename="relatorio-pessoas.xlsx"'
+        wb.save(response)
+        return response
 
 
 class AuditLogListView(IsChurchManagerMixin, ListView):
@@ -260,8 +426,24 @@ def manifest_json(request):
     pra usar o nome/cor de marca reais da igreja em vez de valores fixos.
     Só é referenciado a partir de `templates/base.html` (área logada), mas
     a rota em si não exige login — sem `request.church` (usuário sem
-    igreja, ou hit direto anônimo), cai num manifest genérico."""
+    igreja, ou hit direto anônimo), cai num manifest genérico.
+
+    Ícone: com `Church.logo` cadastrado, aponta pra `church_icon` (gerado
+    na hora a partir do logo real) — sem logo, cai nos PNGs genéricos
+    estáticos de sempre. É esse ícone que aparece na tela inicial do
+    celular quando a igreja "instala" o sistema — o "app com a marca da
+    própria igreja" pedido, sem precisar publicar nada em loja nenhuma."""
     config = getattr(request, "church", None)
+    if config and config.logo:
+        icons = [
+            {"src": reverse("core:church_icon", args=[config.pk, 192]), "sizes": "192x192", "type": "image/png"},
+            {"src": reverse("core:church_icon", args=[config.pk, 512]), "sizes": "512x512", "type": "image/png"},
+        ]
+    else:
+        icons = [
+            {"src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+            {"src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+        ]
     return JsonResponse({
         "name": config.name if config else "Church CRM",
         "short_name": config.name[:12] if config else "Church CRM",
@@ -269,22 +451,114 @@ def manifest_json(request):
         "display": "standalone",
         "background_color": "#f8fafc",
         "theme_color": config.brand_color if config else "#2563eb",
-        "icons": [
-            {"src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
-            {"src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
-        ],
+        "icons": icons,
     })
+
+
+def church_icon(request, church_id, size):
+    """Ícone quadrado do PWA gerado a partir de `Church.logo` — a maioria
+    dos logos enviados não é quadrada, então encaixa ("contain", sem
+    distorcer) num canvas `size×size` com fundo `Church.brand_color`.
+    Cacheado (`django.core.cache`, chave inclui o nome do arquivo do
+    logo — troca de logo já vira uma chave nova sozinha, sem precisar
+    invalidar nada na mão) porque isso roda a cada instalação/atualização
+    de manifest, não a cada request normal.
+
+    Sem igreja/logo, devolve 404 — `manifest_json` só aponta pra cá
+    quando `config.logo` existe, então isso só aconteceria com uma URL
+    montada à mão/desatualizada."""
+    from io import BytesIO
+
+    from django.core.cache import cache
+    from PIL import Image
+
+    church = get_object_or_404(Church, pk=church_id)
+    if not church.logo:
+        raise Http404("Esta igreja não tem logo cadastrado.")
+    if size not in (192, 512):
+        raise Http404("Tamanho de ícone não suportado.")
+
+    cache_key = f"church-icon:{church.pk}:{size}:{church.logo.name}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return HttpResponse(cached, content_type="image/png")
+
+    bg = church.brand_color or "#2563eb"
+    canvas = Image.new("RGB", (size, size), bg)
+    with church.logo.open("rb") as f:
+        logo = Image.open(f).convert("RGBA")
+        logo.thumbnail((int(size * 0.8), int(size * 0.8)))
+        offset = ((size - logo.width) // 2, (size - logo.height) // 2)
+        canvas.paste(logo, offset, logo)
+
+    buffer = BytesIO()
+    canvas.save(buffer, format="PNG")
+    conteudo = buffer.getvalue()
+    cache.set(cache_key, conteudo, timeout=60 * 60 * 24 * 30)  # 30 dias — barato de regerar se expirar
+    return HttpResponse(conteudo, content_type="image/png")
+
+
+def assetlinks_json(request):
+    """Digital Asset Links — necessário pro Android validar um app TWA
+    (Trusted Web Activity) publicado na Play Store como "dono" deste
+    domínio. Terreno pronto, não publicação de verdade: fica vazio até
+    uma igreja preencher `android_package_name`/`android_sha256_fingerprint`
+    (ver DEPLOY.md pra publicar de verdade). Como só existe UM domínio
+    pra todas as igrejas, isso lista TODAS as igrejas que já preencheram
+    — cada uma validaria o pacote Android dela própria."""
+    igrejas_configuradas = Church.objects.exclude(android_package_name="").exclude(
+        android_sha256_fingerprint=""
+    )
+    entries = [
+        {
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {
+                "namespace": "android_app",
+                "package_name": church.android_package_name,
+                "sha256_cert_fingerprints": [church.android_sha256_fingerprint],
+            },
+        }
+        for church in igrejas_configuradas
+    ]
+    return JsonResponse(entries, safe=False)
 
 
 def service_worker_js(request):
     """Em `/sw.js` (raiz) de propósito — o *scope* de um service worker é
     limitado ao diretório de onde ele é servido, então servir de dentro de
-    /static/ deixaria ele sem cobrir o site inteiro."""
+    /static/ deixaria ele sem cobrir o site inteiro.
+
+    `fetch`: cacheia SÓ estático (`/static/`, ícones, manifest) —
+    NUNCA página HTML dinâmica. Isso é deliberado: cachear indiscriminadamente
+    incluiria telas com dado pessoal (Pessoas, Financeiro...), e num
+    aparelho compartilhado isso poderia mostrar tela de um usuário
+    depois que outro logou — risco real de privacidade, não só
+    hipotético, num sistema que lida com dado de LGPD. O resto do
+    tráfego vai direto pra rede, sem cache — não é um app offline-first
+    (é um CRM, depende de dado fresco do servidor), mas ter ESSE fetch
+    handler de verdade (em vez do stub vazio de antes) já conta pro
+    critério de instalabilidade de PWA."""
     js = (
         "const CACHE = 'church-crm-v1';\n"
+        "const CACHEAVEL = /\\/(static|icone)\\//;\n"
         "self.addEventListener('install', e => self.skipWaiting());\n"
-        "self.addEventListener('activate', e => self.clients.claim());\n"
-        "self.addEventListener('fetch', e => {});\n"
+        "self.addEventListener('activate', e => {\n"
+        "    e.waitUntil(caches.keys().then(keys => Promise.all(\n"
+        "        keys.filter(k => k !== CACHE).map(k => caches.delete(k))\n"
+        "    )));\n"
+        "    self.clients.claim();\n"
+        "});\n"
+        "self.addEventListener('fetch', e => {\n"
+        "    const url = new URL(e.request.url);\n"
+        "    if (e.request.method !== 'GET' || url.origin !== self.location.origin || !CACHEAVEL.test(url.pathname)) return;\n"
+        "    e.respondWith(\n"
+        "        fetch(e.request).then(response => {\n"
+        "            const copy = response.clone();\n"
+        "            caches.open(CACHE).then(cache => cache.put(e.request, copy));\n"
+        "            return response;\n"
+        "        }).catch(() => caches.match(e.request))\n"
+        "    );\n"
+        "});\n"
         "self.addEventListener('push', e => {\n"
         "    let data = {title: 'Aviso', body: '', url: '/'};\n"
         "    try { data = e.data.json(); } catch (err) {}\n"

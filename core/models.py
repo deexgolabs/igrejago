@@ -159,6 +159,21 @@ class Church(models.Model):
         "Access Token do Mercado Pago", max_length=200, blank=True,
         help_text="Gerado no painel de desenvolvedor do Mercado Pago — habilita checkout com confirmação automática.",
     )
+    pagbank_token = models.CharField(
+        "Token do PagBank", max_length=200, blank=True,
+        help_text="Gerado no painel de desenvolvedor do PagBank (developer.pagbank.com.br) — segundo gateway "
+                   "de pagamento, independente do Mercado Pago (dá pra ter os dois configurados ao mesmo tempo).",
+    )
+    android_package_name = models.CharField(
+        "Nome do pacote Android", max_length=150, blank=True,
+        help_text="Preenchido só se/quando essa igreja publicar o próprio app na Play Store (via TWA — "
+                   "ver DEPLOY.md). Sem isso, o app instalado continua funcionando normalmente (PWA).",
+    )
+    android_sha256_fingerprint = models.CharField(
+        "Fingerprint SHA256 do certificado Android", max_length=100, blank=True,
+        help_text="Gerado ao assinar o app Android — necessário junto com o nome do pacote acima pra "
+                   "validar o app na Play Store (Digital Asset Links).",
+    )
 
     # Instância desta igreja no servidor Evolution API COMPARTILHADO da
     # plataforma (URL/chave global do servidor em si vêm de
@@ -177,9 +192,10 @@ class Church(models.Model):
                    "de Conectar WhatsApp. Trocar aqui não apaga a configuração do outro canal.",
     )
     whatsapp_meta_phone_number_id = models.CharField(
-        "Phone Number ID (Meta Cloud API)", max_length=100, blank=True,
+        "Phone Number ID (Meta Cloud API)", max_length=100, blank=True, db_index=True,
         help_text="Do painel de desenvolvedor da Meta (developers.facebook.com) — infraestrutura da "
-                   "própria igreja, não desta plataforma.",
+                   "própria igreja, não desta plataforma. Indexado: é por esse valor que o webhook "
+                   "oficial da Meta descobre de qual igreja é um evento de entrega de mensagem.",
     )
     whatsapp_meta_access_token = models.CharField(
         "Access Token (Meta Cloud API)", max_length=500, blank=True,
@@ -306,6 +322,10 @@ class Church(models.Model):
     @property
     def mercadopago_configured(self):
         return bool(self.mercadopago_access_token)
+
+    @property
+    def pagbank_configured(self):
+        return bool(self.pagbank_token)
 
     @property
     def whatsapp_api_configured(self):

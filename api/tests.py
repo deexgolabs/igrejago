@@ -169,3 +169,147 @@ class TestApiWritePerson:
 
         response = client.get(f"/api/pessoas/{alheia.pk}/", HTTP_AUTHORIZATION="Bearer chave-isolada")
         assert response.status_code == 404
+
+
+@pytest.mark.django_db
+class TestApiWriteTransaction:
+    def test_creates_income_transaction(self, client, church):
+        from finance.models import Transaction
+
+        church.api_key = "chave-transacao"
+        church.save()
+        response = client.post(
+            "/api/doacoes/",
+            data=json.dumps({
+                "type": "INCOME", "category": "DONATION", "amount": "150.00", "date": "2026-03-01",
+            }),
+            content_type="application/json", HTTP_AUTHORIZATION="Bearer chave-transacao",
+        )
+        assert response.status_code == 201
+        transaction = Transaction.objects.get()
+        assert transaction.amount == 150
+        assert transaction.church_id == church.pk
+
+    def test_creates_expense_transaction(self, client, church):
+        from finance.models import Transaction
+
+        church.api_key = "chave-despesa"
+        church.save()
+        response = client.post(
+            "/api/doacoes/",
+            data=json.dumps({
+                "type": "EXPENSE", "category": "RENT", "amount": "80.00", "date": "2026-03-01",
+            }),
+            content_type="application/json", HTTP_AUTHORIZATION="Bearer chave-despesa",
+        )
+        assert response.status_code == 201
+        assert Transaction.objects.get().type == "EXPENSE"
+
+    def test_invalid_transaction_returns_400(self, client, church):
+        church.api_key = "chave-transacao-invalida"
+        church.save()
+        response = client.post(
+            "/api/doacoes/", data=json.dumps({}), content_type="application/json",
+            HTTP_AUTHORIZATION="Bearer chave-transacao-invalida",
+        )
+        assert response.status_code == 400
+
+
+@pytest.mark.django_db
+class TestApiWriteRegistration:
+    def _event(self, church, **kwargs):
+        from events.models import Event
+
+        defaults = {"church": church, "title": "Culto", "status": Event.EventStatus.PUBLISHED}
+        from django.utils import timezone
+        from datetime import timedelta
+
+        defaults["start_datetime"] = timezone.now() + timedelta(days=3)
+        defaults.update(kwargs)
+        return Event.objects.create(**defaults)
+
+    def test_creates_free_registration(self, client, church):
+        from events.models import Registration
+
+        church.api_key = "chave-inscricao"
+        church.save()
+        event = self._event(church)
+        response = client.post(
+            "/api/inscricoes/",
+            data=json.dumps({
+                "event_id": event.pk, "full_name": "Fulano", "phone": "62999998888",
+                "email": "fulano@example.com", "consent": True,
+            }),
+            content_type="application/json", HTTP_AUTHORIZATION="Bearer chave-inscricao",
+        )
+        assert response.status_code == 201
+        registration = Registration.objects.get()
+        assert registration.payment_status == Registration.PaymentStatus.FREE
+        assert registration.privacy_consent_at is not None
+
+    def test_paid_event_gets_pending_status(self, client, church):
+        from events.models import Registration
+
+        church.api_key = "chave-inscricao-paga"
+        church.save()
+        event = self._event(church, is_paid=True, price=50)
+        client.post(
+            "/api/inscricoes/",
+            data=json.dumps({
+                "event_id": event.pk, "full_name": "Ciclana", "phone": "62999997777", "consent": True,
+            }),
+            content_type="application/json", HTTP_AUTHORIZATION="Bearer chave-inscricao-paga",
+        )
+        assert Registration.objects.get().payment_status == Registration.PaymentStatus.PENDING
+
+    def test_full_event_registration_goes_to_waitlist(self, client, church):
+        from events.models import Registration
+
+        church.api_key = "chave-inscricao-lotado"
+        church.save()
+        event = self._event(church, capacity=1)
+        Registration.objects.create(church=church, event=event, full_name="Já inscrito")
+        response = client.post(
+            "/api/inscricoes/",
+            data=json.dumps({
+                "event_id": event.pk, "full_name": "Fila de espera", "phone": "62999996666", "consent": True,
+            }),
+            content_type="application/json", HTTP_AUTHORIZATION="Bearer chave-inscricao-lotado",
+        )
+        assert response.status_code == 201
+        assert response.json()["on_waitlist"] is True
+
+    def test_without_consent_is_rejected(self, client, church):
+        from events.models import Registration
+
+        church.api_key = "chave-sem-consentimento"
+        church.save()
+        event = self._event(church)
+        response = client.post(
+            "/api/inscricoes/",
+            data=json.dumps({"event_id": event.pk, "full_name": "Sem consentimento", "phone": "62999995555"}),
+            content_type="application/json", HTTP_AUTHORIZATION="Bearer chave-sem-consentimento",
+        )
+        assert response.status_code == 400
+        assert not Registration.objects.exists()
+
+    def test_invalid_event_id_returns_400(self, client, church):
+        church.api_key = "chave-evento-invalido"
+        church.save()
+        response = client.post(
+            "/api/inscricoes/",
+            data=json.dumps({"event_id": 999999, "full_name": "X", "consent": True}),
+            content_type="application/json", HTTP_AUTHORIZATION="Bearer chave-evento-invalido",
+        )
+        assert response.status_code == 400
+
+    def test_cannot_register_for_event_from_another_church(self, client, church, outra_church):
+        church.api_key = "chave-evento-outra-igreja"
+        church.save()
+        event = self._event(outra_church)
+        response = client.post(
+            "/api/inscricoes/",
+            data=json.dumps({"event_id": event.pk, "full_name": "X", "consent": True}),
+            content_type="application/json", HTTP_AUTHORIZATION="Bearer chave-evento-outra-igreja",
+        )
+        assert response.status_code == 400

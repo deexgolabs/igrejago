@@ -1,0 +1,28 @@
+{% extends "public_base.html" %}
+{% block title %}Pagar com PagBank{% endblock %}
+{% block content %}
+<div class="bg-white border border-slate-200 rounded-xl p-6 text-center">
+    <h2 class="text-lg font-bold text-slate-900 mb-1">Pagar com PagBank (PIX)</h2>
+    <p class="text-sm text-slate-500 mb-4">
+        Inscrição de <strong>{{ registration.full_name }}</strong> em <strong>{{ registration.event.title }}</strong> —
+        R$ {{ registration.event.price }}
+    </p>
+
+    {% if qr_image_url %}
+    <img src="{{ qr_image_url }}" alt="QR Code PIX (PagBank)" class="mx-auto w-56 h-56 mb-4">
+    {% endif %}
+    {% if qr_copia_cola %}
+    <p class="text-xs text-slate-400 mb-1">PIX Copia e Cola</p>
+    <textarea readonly class="w-full text-xs border border-slate-300 rounded-lg p-2 mb-4 h-20" onclick="this.select()">{{ qr_copia_cola }}</textarea>
+    {% endif %}
+    {% if not qr_image_url and not qr_copia_cola %}
+    <p class="text-sm text-amber-600 bg-amber-50 rounded-lg p-3 mb-4">
+        Pedido criado no PagBank — se o QR Code não aparecer aqui, entre em contato com a secretaria
+        informando o evento e o valor.
+    </p>
+    {% endif %}
+    <p class="text-sm text-slate-500 bg-slate-50 rounded-lg p-3">
+        A confirmação é automática assim que o PagBank avisar que o PIX foi recebido.
+    </p>
+</div>
+{% endblock %}

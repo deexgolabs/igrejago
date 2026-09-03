@@ -9,6 +9,7 @@ qrcode>=8.0
 requests>=2.31
 whitenoise>=6.7
 reportlab>=4.0
+icalendar>=6.0
 pytest>=8.0
 pytest-django>=4.8
 

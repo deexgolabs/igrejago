@@ -10,9 +10,12 @@ na prática, não só documentação: ver `django.urls.get_resolver().namespace_
 from django.urls import path
 
 from events.views import (
+    EventCalendarFeedView,
     EventDetailView,
     EventRegistrationView,
+    EventSingleCalendarView,
     MercadoPagoCheckoutStartView,
+    PagBankCheckoutStartView,
     RegistrationDoneView,
     RegistrationPaymentView,
 )
@@ -20,6 +23,8 @@ from events.views import (
 app_name = "events_public"
 
 urlpatterns = [
+    path("calendario.ics", EventCalendarFeedView.as_view(), name="calendar_feed"),
+    path("<slug:slug>/calendario.ics", EventSingleCalendarView.as_view(), name="calendar_single"),
     path("<slug:slug>/", EventDetailView.as_view(), name="detail"),
     path("<slug:slug>/inscricao/", EventRegistrationView.as_view(), name="register"),
     path("<slug:slug>/inscricao/<int:pk>/pagamento/", RegistrationPaymentView.as_view(), name="register_payment"),
@@ -27,6 +32,11 @@ urlpatterns = [
         "<slug:slug>/inscricao/<int:pk>/pagamento/mercadopago/",
         MercadoPagoCheckoutStartView.as_view(),
         name="mercadopago_checkout_start",
+    ),
+    path(
+        "<slug:slug>/inscricao/<int:pk>/pagamento/pagbank/",
+        PagBankCheckoutStartView.as_view(),
+        name="pagbank_checkout_start",
     ),
     path("<slug:slug>/inscricao/<int:pk>/obrigado/", RegistrationDoneView.as_view(), name="register_done"),
 ]

@@ -13,6 +13,7 @@ from notifications.views import (
     MessageTemplateDeleteView,
     MessageTemplateListView,
     MessageTemplateUpdateView,
+    MetaWhatsAppWebhookView,
     PushSubscribeView,
     ResendConfirmationEmailView,
     ScheduledMessageCreateView,
@@ -83,4 +84,5 @@ urlpatterns = [
         name="whatsapp_meta_template_refresh_status",
     ),
     path("webhook/evolution/", WhatsAppWebhookView.as_view(), name="webhook"),
+    path("webhook/meta/", MetaWhatsAppWebhookView.as_view(), name="webhook_meta"),
 ]
